@@ -1,0 +1,194 @@
+.configurations {
+  display: grid;
+  gap: 20px;
+}
+
+.header {
+  align-items: flex-start;
+  display: flex;
+  gap: 24px;
+  justify-content: space-between;
+}
+
+.cards {
+  display: grid;
+  gap: 18px;
+}
+
+.informationGrid,
+.features {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.feature {
+  align-content: start;
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.featureHeading h3 {
+  color: #202223;
+  font-size: 14px;
+  line-height: 20px;
+  margin: 0;
+}
+
+.featureHeading p {
+  color: #6d7175;
+  font-size: 13px;
+  line-height: 20px;
+  margin: 2px 0 0;
+}
+
+.skeleton {
+  display: grid;
+  gap: 7px;
+}
+
+.skeletonLabel,
+.skeletonInput {
+  animation: configuration-pulse 1.3s ease-in-out infinite;
+  background: #e4e5e7;
+  border-radius: 6px;
+  display: block;
+}
+
+.skeletonLabel {
+  height: 13px;
+  width: 92px;
+}
+
+.skeletonInput {
+  height: 36px;
+  width: 100%;
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.tags:empty {
+  display: none;
+}
+
+.tag {
+  align-items: center;
+  background: #ebebeb;
+  border-radius: 999px;
+  color: #303030;
+  display: inline-flex;
+  font-size: 13px;
+  gap: 5px;
+  max-width: 100%;
+  padding: 4px 7px 4px 10px;
+}
+
+.tag > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+  color: #4a4a4a;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 17px;
+  height: 20px;
+  justify-content: center;
+  line-height: 1;
+  padding: 0;
+  width: 20px;
+}
+
+.tag button:hover,
+.tag button:focus-visible {
+  background: #d7d7d7;
+  outline: none;
+}
+
+.optionField,
+.combobox {
+  display: grid;
+  gap: 5px;
+}
+
+.optionField s-clickable,
+.combobox s-clickable {
+  min-height: 34px;
+}
+
+.fieldError {
+  color: #8e0b21;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.configurationPopoverContent {
+  display: grid;
+  gap: 10px;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  height: 308px;
+  min-height: 0;
+}
+
+.popoverResults {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.popoverResults s-button {
+  display: block;
+  width: 100%;
+}
+
+.collectionState {
+  align-items: center;
+  color: #6d7175;
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  min-height: 44px;
+  padding: 8px;
+  text-align: center;
+}
+
+.termInput {
+  align-items: end;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+@keyframes configuration-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 760px) {
+  .header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .informationGrid,
+  .features {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

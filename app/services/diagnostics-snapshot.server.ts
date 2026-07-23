@@ -19,6 +19,7 @@ export interface DiagnosticsSnapshotCounts {
   submitted: number;
   warnings: number;
   excluded: number;
+  configurationRevision: string;
   generatedAt: string;
   scanVersion: string;
 }
@@ -139,6 +140,7 @@ function mapCounts(snapshot: {
   warnings: number;
   excluded: number;
   completedAt: Date | null;
+  configurationRevision: string;
   createdAt: Date;
   scanVersion: string;
 }): DiagnosticsSnapshotCounts {
@@ -147,6 +149,7 @@ function mapCounts(snapshot: {
     submitted: snapshot.submitted,
     warnings: snapshot.warnings,
     excluded: snapshot.excluded,
+    configurationRevision: snapshot.configurationRevision,
     generatedAt: (snapshot.completedAt ?? snapshot.createdAt).toISOString(),
     scanVersion: snapshot.scanVersion,
   };
@@ -155,6 +158,7 @@ function mapCounts(snapshot: {
 export async function findReadyDiagnosticsSnapshot(
   shop: string,
   scanVersion?: string | null,
+  configurationRevision?: string | null,
 ) {
   if (scanVersion && !scanVersion.startsWith(SNAPSHOT_VERSION_PREFIX)) {
     return null;
@@ -165,6 +169,7 @@ export async function findReadyDiagnosticsSnapshot(
       shop: normalizeShop(shop),
       status: READY_STATUS,
       scanVersion: scanVersion ?? { startsWith: SNAPSHOT_VERSION_PREFIX },
+      ...(configurationRevision ? { configurationRevision } : {}),
     },
     orderBy: {
       completedAt: "desc",
@@ -177,6 +182,7 @@ export async function findReadyDiagnosticsSnapshot(
 export async function beginDiagnosticsSnapshot(
   shop: string,
   scanVersion: string,
+  configurationRevision: string,
 ) {
   const normalizedShop = normalizeShop(shop);
 
@@ -190,6 +196,7 @@ export async function beginDiagnosticsSnapshot(
     data: {
       shop: normalizedShop,
       scanVersion,
+      configurationRevision,
       status: BUILDING_STATUS,
     },
   });
@@ -227,22 +234,37 @@ export async function appendDiagnosticsSnapshotProducts(
 export async function completeDiagnosticsSnapshot(
   shop: string,
   scanVersion: string,
-  counts: Omit<DiagnosticsSnapshotCounts, "generatedAt" | "scanVersion">,
+  counts: Omit<
+    DiagnosticsSnapshotCounts,
+    "configurationRevision" | "generatedAt" | "scanVersion"
+  >,
 ) {
   const normalizedShop = normalizeShop(shop);
   const completedAt = new Date();
 
-  const snapshot = await prisma.diagnosticsSnapshot.update({
+  const completion = await prisma.diagnosticsSnapshot.updateMany({
     where: {
-      shop_scanVersion: {
-        shop: normalizedShop,
-        scanVersion,
-      },
+      shop: normalizedShop,
+      scanVersion,
+      status: BUILDING_STATUS,
     },
     data: {
       ...counts,
       completedAt,
       status: READY_STATUS,
+    },
+  });
+
+  if (completion.count !== 1) {
+    throw new Error("Diagnostics snapshot became stale while it was building.");
+  }
+
+  const snapshot = await prisma.diagnosticsSnapshot.findUniqueOrThrow({
+    where: {
+      shop_scanVersion: {
+        shop: normalizedShop,
+        scanVersion,
+      },
     },
   });
 
@@ -331,7 +353,7 @@ async function resolveSnapshotPosition(
 
 export async function readDiagnosticsSnapshotPage(
   shop: string,
-  tab: "all" | "submitted" | "warnings",
+  tab: "all" | "submitted" | "warnings" | "excluded",
   options: {
     after?: string | null;
     before?: string | null;
@@ -373,7 +395,9 @@ export async function readDiagnosticsSnapshotPage(
       ? "submitted"
       : tab === "warnings"
         ? "warning"
-        : undefined;
+        : tab === "excluded"
+          ? "error"
+          : undefined;
   const normalizedSearch = normalizeDiagnosticsSearch(options.search ?? "");
   const isBackward = Boolean(options.before);
   const storedProducts = await prisma.diagnosticsSnapshotProduct.findMany({

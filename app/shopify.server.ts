@@ -6,6 +6,8 @@ import {
 } from "@shopify/shopify-app-react-router/server";
 import { MongoDBSessionStorage } from "@shopify/shopify-app-session-storage-mongodb";
 
+import { upsertInstalledStore } from "./services/store.server";
+
 const databaseUrl = process.env.DATABASE_URL;
 
 if (!databaseUrl) {
@@ -48,6 +50,11 @@ const shopify = shopifyApp({
   authPathPrefix: "/auth",
   sessionStorage: mongoSessionStorage,
   distribution: AppDistribution.AppStore,
+  hooks: {
+    afterAuth: async ({ session }) => {
+      await upsertInstalledStore(session);
+    },
+  },
   future: {
     expiringOfflineAccessTokens: true,
   },

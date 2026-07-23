@@ -1,5 +1,5 @@
 export const DIAGNOSTICS_CLASSIFICATION_VERSION =
-  "diagnostics-v5-filtered-metafield-keys";
+  "diagnostics-v6-configuration-exclusions";
 
 export type DiagnosticStatus = "submitted" | "warning" | "error";
 
@@ -15,6 +15,7 @@ export interface RawDiagnosticProduct {
   price: string | null;
   imageUrl: string | null;
   imageAlt: string | null;
+  collectionIds?: string[];
   options: Array<{
     name: string;
     values: string[];
@@ -28,6 +29,14 @@ export interface RawDiagnosticProduct {
     jsonValue?: unknown;
     referencedValues?: string[];
   }>;
+}
+
+export interface DiagnosticExclusionRules {
+  excludedCollections: Array<{
+    id: string;
+    title: string;
+  }>;
+  excludedTitleTerms: string[];
 }
 
 export interface DiagnosticProduct {
@@ -243,6 +252,56 @@ function normalizeValueSet(values: string[]) {
   );
 }
 
+export function normalizeDiagnosticMatchText(value: string) {
+  return value
+    .normalize("NFKC")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLocaleLowerCase();
+}
+
+export function getDiagnosticExclusionReasons(
+  product: RawDiagnosticProduct,
+  rules?: DiagnosticExclusionRules,
+) {
+  if (!rules) {
+    return [];
+  }
+
+  const productCollectionIds = new Set(product.collectionIds ?? []);
+  const reasons: DiagnosticWarning[] = [];
+
+  for (const collection of rules.excludedCollections) {
+    if (productCollectionIds.has(collection.id)) {
+      reasons.push({
+        code: `excluded-collection-${collection.id.split("/").at(-1)}`,
+        message: `Excluded collection: ${collection.title}`,
+      });
+    }
+  }
+
+  const normalizedTitle = normalizeDiagnosticMatchText(product.title);
+  const matchedTerms = new Set<string>();
+
+  for (const term of rules.excludedTitleTerms) {
+    const normalizedTerm = normalizeDiagnosticMatchText(term);
+
+    if (
+      normalizedTerm &&
+      normalizedTitle.includes(normalizedTerm) &&
+      !matchedTerms.has(normalizedTerm)
+    ) {
+      matchedTerms.add(normalizedTerm);
+      reasons.push({
+        code: `excluded-title-${matchedTerms.size}`,
+        message: `Excluded by title term: ${term}`,
+      });
+    }
+  }
+
+  return reasons;
+}
+
 function equalSets(left: Set<string>, right: Set<string>) {
   return (
     left.size === right.size && [...left].every((value) => right.has(value))
@@ -293,7 +352,24 @@ function collectAttributeValues(
  */
 export function validateDiagnosticProduct(
   product: RawDiagnosticProduct,
+  exclusionRules?: DiagnosticExclusionRules,
 ): DiagnosticProduct {
+  const exclusionReasons = getDiagnosticExclusionReasons(
+    product,
+    exclusionRules,
+  );
+
+  if (exclusionReasons.length > 0) {
+    return {
+      id: product.id,
+      title: product.title,
+      imageUrl: product.imageUrl,
+      imageAlt: product.imageAlt,
+      status: "error",
+      warnings: exclusionReasons,
+    };
+  }
+
   const warnings: DiagnosticWarning[] = [];
   const optionValues = collectAttributeValues(product, "options");
   const metafieldValues = collectAttributeValues(product, "metafields");
@@ -343,5 +419,28 @@ export function validateDiagnosticProduct(
     imageAlt: product.imageAlt,
     status: warnings.length === 0 ? "submitted" : "warning",
     warnings,
+  };
+}
+
+export function countDiagnosticProducts(products: DiagnosticProduct[]) {
+  let submitted = 0;
+  let warnings = 0;
+  let excluded = 0;
+
+  for (const product of products) {
+    if (product.status === "submitted") {
+      submitted += 1;
+    } else if (product.status === "warning") {
+      warnings += 1;
+    } else {
+      excluded += 1;
+    }
+  }
+
+  return {
+    allProducts: products.length,
+    submitted,
+    warnings,
+    excluded,
   };
 }

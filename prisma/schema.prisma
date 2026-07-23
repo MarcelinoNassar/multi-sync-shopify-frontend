@@ -33,20 +33,58 @@ model Session {
   refreshTokenExpires DateTime?
 }
 
+enum StoreStatus {
+  INSTALLED
+  UNINSTALLED
+}
+
+model Store {
+  id            String         @id @default(auto()) @map("_id") @db.ObjectId
+  shopDomain    String         @unique
+  accessToken   String?
+  status        StoreStatus    @default(INSTALLED)
+  installedAt   DateTime       @default(now())
+  uninstalledAt DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  configuration Configuration?
+
+  @@index([status])
+}
+
+model Configuration {
+  id                  String   @id @default(auto()) @map("_id") @db.ObjectId
+  storeId             String   @unique @db.ObjectId
+  store               Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  alertsEmail         String
+  countryCode         String
+  colorOption         String?
+  sizeOption          String?
+  excludedCollections Json
+  excludedTitleTerms  String[]
+  diagnosticsRevision String   @default("")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([updatedAt])
+}
+
 model DiagnosticsSnapshot {
-  id          String    @id @default(auto()) @map("_id") @db.ObjectId
-  shop        String
-  scanVersion String
-  status      String
-  createdAt   DateTime  @default(now())
-  completedAt DateTime?
-  allProducts Int       @default(0)
-  submitted   Int       @default(0)
-  warnings    Int       @default(0)
-  excluded    Int       @default(0)
+  id                    String    @id @default(auto()) @map("_id") @db.ObjectId
+  shop                  String
+  scanVersion           String
+  configurationRevision String    @default("")
+  status                String
+  createdAt             DateTime  @default(now())
+  completedAt           DateTime?
+  allProducts           Int       @default(0)
+  submitted             Int       @default(0)
+  warnings              Int       @default(0)
+  excluded              Int       @default(0)
 
   @@unique([shop, scanVersion])
   @@index([shop, status, completedAt])
+  @@index([shop, configurationRevision, status, completedAt])
 }
 
 model DiagnosticsSnapshotProduct {

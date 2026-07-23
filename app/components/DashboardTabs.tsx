@@ -3,6 +3,7 @@ import { Await } from "react-router";
 
 import { InlineLoadingValue, SectionError } from "./DashboardStates";
 import { DiagnosticsPanel } from "./DiagnosticsPanel";
+import { ConfigurationsPanel } from "./ConfigurationsPanel";
 import type {
   ProductStatistics,
   StoreInformation,
@@ -383,19 +384,28 @@ export function DashboardTabs(props: DashboardTabsProps) {
         />
       </div>
 
-      {tabs
-        .filter((tab) => tab.id === "feeds" || tab.id === "configurations")
-        .map((tab) => (
-          <div
-            aria-labelledby={`tab-${tab.id}`}
-            className={styles.emptyPanel}
-            hidden={activeTab !== tab.id}
-            id={`panel-${tab.id}`}
-            key={tab.id}
-            role="tabpanel"
-            tabIndex={0}
-          />
-        ))}
+      <div
+        aria-labelledby="tab-configurations"
+        className={styles.panel}
+        hidden={activeTab !== "configurations"}
+        id="panel-configurations"
+        role="tabpanel"
+        tabIndex={0}
+      >
+        <ConfigurationsPanel
+          active={activeTab === "configurations"}
+          scope={props.diagnosticsScope}
+        />
+      </div>
+
+      <div
+        aria-labelledby="tab-feeds"
+        className={styles.emptyPanel}
+        hidden={activeTab !== "feeds"}
+        id="panel-feeds"
+        role="tabpanel"
+        tabIndex={0}
+      />
     </div>
   );
 }

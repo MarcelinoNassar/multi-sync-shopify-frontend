@@ -6,6 +6,7 @@
     "skipLibCheck": true,
     "isolatedModules": true,
     "allowSyntheticDefaultImports": true,
+    "allowImportingTsExtensions": true,
     "removeComments": false,
     "forceConsistentCasingInFileNames": true,
     "noEmit": true,

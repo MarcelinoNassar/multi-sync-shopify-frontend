@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 
 import { ACTIVE_ONLINE_STORE_PRODUCT_QUERY } from "./catalog-query";
+import {
+  getDiagnosticsConfigurationRules,
+  type DiagnosticsConfigurationRules,
+} from "./configuration.server";
 import { normalizeDiagnosticsSearch } from "./diagnostics-search";
 import {
   appendDiagnosticsSnapshotProducts,
@@ -11,6 +15,7 @@ import {
   encodeDiagnosticsSnapshotCursor,
   findReadyDiagnosticsSnapshot,
   readDiagnosticsSnapshotPage,
+  type DiagnosticsSnapshotCounts,
 } from "./diagnostics-snapshot.server";
 import {
   DIAGNOSTICS_CLASSIFICATION_VERSION,
@@ -31,6 +36,7 @@ const COUNTS_CACHE_TTL_MS = 15 * 60 * 1000;
 const PAGE_CACHE_TTL_MS = 60 * 1000;
 const RAW_PRODUCT_PAGE_CACHE_TTL_MS = 2 * 60 * 1000;
 const METAFIELD_KEYS_CACHE_TTL_MS = 10 * 60 * 1000;
+const EXCLUSION_CONTEXT_CACHE_TTL_MS = 10 * 60 * 1000;
 const MAX_CACHE_ENTRIES = 500;
 // Raw Shopify batches are only a short coalescing window. Capping this cache
 // prevents a complete large catalog from being retained in server memory.
@@ -72,7 +78,10 @@ export interface DiagnosticsCounts {
   submitted: number;
   warnings: number;
   excluded: number;
+  configurationRevision: string;
   generatedAt: string;
+  hasSnapshot: boolean;
+  isStale: boolean;
   scanVersion: string;
 }
 
@@ -213,6 +222,21 @@ interface DiagnosticMetafieldSelection {
   attributesByIdentifier: ReadonlyMap<string, DiagnosticAttribute>;
 }
 
+interface DiagnosticsExclusionContext {
+  collectionIdsByProductId: ReadonlyMap<string, string[]>;
+  rules: DiagnosticsConfigurationRules;
+}
+
+interface ExcludedCollectionProductQuery {
+  products: {
+    nodes: Array<{ id: string }>;
+    pageInfo: {
+      endCursor: string | null;
+      hasNextPage: boolean;
+    };
+  };
+}
+
 interface MetafieldReferenceNode {
   __typename: string;
   id: string;
@@ -231,6 +255,10 @@ const metafieldKeysCache = new Map<
   CacheEntry<DiagnosticMetafieldSelection>
 >();
 const rawProductPageCache = new Map<string, CacheEntry<RawProductPage>>();
+const exclusionContextCache = new Map<
+  string,
+  CacheEntry<DiagnosticsExclusionContext>
+>();
 const rawGenerationByShop = new Map<string, string>();
 
 const METAFIELD_DEFINITIONS_QUERY = `#graphql
@@ -311,6 +339,25 @@ const PRODUCT_PAGE_QUERY = `#graphql
         hasPreviousPage
         startCursor
         endCursor
+      }
+    }
+  }
+`;
+
+const EXCLUDED_COLLECTION_PRODUCTS_QUERY = `#graphql
+  query ExcludedCollectionProducts($after: String, $query: String!) {
+    products(
+      after: $after
+      first: 250
+      query: $query
+      sortKey: ID
+    ) {
+      nodes {
+        id
+      }
+      pageInfo {
+        endCursor
+        hasNextPage
       }
     }
   }
@@ -488,6 +535,88 @@ function getCachedValue<TValue>(
   return value;
 }
 
+function numericShopifyId(id: string) {
+  const value = id.split("/").at(-1);
+  return value && /^\d+$/.test(value) ? value : null;
+}
+
+async function buildDiagnosticsExclusionContext(
+  admin: AdminGraphQLClient,
+  rules: DiagnosticsConfigurationRules,
+): Promise<DiagnosticsExclusionContext> {
+  const collectionIdsByProductId = new Map<string, string[]>();
+  let previousPayload: GraphQLPayload<unknown> | null = null;
+
+  for (const collection of rules.excludedCollections) {
+    const collectionId = numericShopifyId(collection.id);
+
+    if (!collectionId) {
+      continue;
+    }
+
+    let after: string | null = null;
+    let hasNextPage = true;
+
+    while (hasNextPage) {
+      if (previousPayload) {
+        const delay = throttleDelay(previousPayload);
+        if (delay > 0) {
+          await wait(delay);
+        }
+      }
+
+      const payload: GraphQLPayload<ExcludedCollectionProductQuery> =
+        await queryShopify<ExcludedCollectionProductQuery>(
+          admin,
+          EXCLUDED_COLLECTION_PRODUCTS_QUERY,
+          {
+            after,
+            query: `${ACTIVE_ONLINE_STORE_PRODUCT_QUERY} AND collection_id:${collectionId}`,
+          },
+        );
+      const page: ExcludedCollectionProductQuery["products"] | undefined =
+        payload.data?.products;
+
+      if (!page) {
+        throw new DiagnosticsDataError();
+      }
+
+      for (const product of page.nodes) {
+        collectionIdsByProductId.set(product.id, [
+          ...(collectionIdsByProductId.get(product.id) ?? []),
+          collection.id,
+        ]);
+      }
+
+      hasNextPage = page.pageInfo.hasNextPage;
+      after = page.pageInfo.endCursor;
+      previousPayload = payload;
+
+      if (hasNextPage && !after) {
+        throw new DiagnosticsDataError();
+      }
+    }
+  }
+
+  return { collectionIdsByProductId, rules };
+}
+
+async function getDiagnosticsExclusionContext(
+  admin: AdminGraphQLClient,
+  shop: string,
+  knownRules?: DiagnosticsConfigurationRules,
+) {
+  const rules = knownRules ?? (await getDiagnosticsConfigurationRules(shop));
+  const key = `${normalizeShop(shop)}|${rules.revision}`;
+
+  return getCachedValue(
+    exclusionContextCache,
+    key,
+    EXCLUSION_CONTEXT_CACHE_TTL_MS,
+    () => buildDiagnosticsExclusionContext(admin, rules),
+  );
+}
+
 function invalidateRawProductPageCache(shop: string) {
   const prefix = `${normalizeShop(shop)}|`;
 
@@ -536,6 +665,7 @@ function getShopifyScanVersion(rawGeneration: string) {
 
 async function fetchDiagnosticMetafieldKeys(admin: AdminGraphQLClient) {
   const attributesByIdentifier = new Map<string, DiagnosticAttribute>();
+
   let after: string | null = null;
   let previousPayload: GraphQLPayload<unknown> | null = null;
   let hasNextPage = true;
@@ -563,15 +693,13 @@ async function fetchDiagnosticMetafieldKeys(admin: AdminGraphQLClient) {
     }
 
     for (const definition of connection.nodes) {
+      const identifier = `${definition.namespace}.${definition.key}`;
       const attribute =
         getDiagnosticAttribute(definition.key) ??
         getDiagnosticAttribute(definition.name);
 
       if (attribute) {
-        attributesByIdentifier.set(
-          `${definition.namespace}.${definition.key}`,
-          attribute,
-        );
+        attributesByIdentifier.set(identifier, attribute);
       }
     }
 
@@ -767,6 +895,7 @@ function mapProduct(
   node: ProductEdge["node"],
   referenceValuesById: ReadonlyMap<string, string>,
   attributesByIdentifier: ReadonlyMap<string, DiagnosticAttribute>,
+  exclusionContext: DiagnosticsExclusionContext,
 ): RawDiagnosticProduct {
   const image = node.featuredMedia?.preview?.image;
   const metafields = node.metafields.nodes.map((metafield) => {
@@ -800,6 +929,7 @@ function mapProduct(
     price: node.priceRangeV2?.minVariantPrice?.amount ?? null,
     imageUrl: image?.url ?? null,
     imageAlt: image?.altText ?? null,
+    collectionIds: exclusionContext.collectionIdsByProductId.get(node.id) ?? [],
     options: node.options,
     metafields,
   };
@@ -809,12 +939,19 @@ async function classifyProductEdges(
   admin: AdminGraphQLClient,
   edges: ProductEdge[],
   attributesByIdentifier: ReadonlyMap<string, DiagnosticAttribute>,
+  exclusionContext: DiagnosticsExclusionContext,
 ) {
   const referenceValuesById = await fetchMetafieldReferenceValues(admin, edges);
 
   return edges.map((edge) =>
     validateDiagnosticProduct(
-      mapProduct(edge.node, referenceValuesById, attributesByIdentifier),
+      mapProduct(
+        edge.node,
+        referenceValuesById,
+        attributesByIdentifier,
+        exclusionContext,
+      ),
+      exclusionContext.rules,
     ),
   );
 }
@@ -936,7 +1073,8 @@ async function fetchStoreWideDiagnosticsCounts(
   shop: string,
   rawGeneration: string,
   scanVersion: string,
-): Promise<DiagnosticsCounts> {
+  exclusionContext: DiagnosticsExclusionContext,
+): Promise<DiagnosticsSnapshotCounts> {
   const metafieldSelection = await getDiagnosticMetafieldKeys(admin, shop);
   let batchSize = getScanBatchSize(metafieldSelection.keys.length);
   let allProducts = 0;
@@ -948,7 +1086,11 @@ async function fetchStoreWideDiagnosticsCounts(
   let hasNextPage = true;
   let position = 0;
 
-  await beginDiagnosticsSnapshot(shop, scanVersion);
+  await beginDiagnosticsSnapshot(
+    shop,
+    scanVersion,
+    exclusionContext.rules.revision,
+  );
 
   try {
     while (hasNextPage) {
@@ -975,6 +1117,7 @@ async function fetchStoreWideDiagnosticsCounts(
         admin,
         result.page.edges,
         metafieldSelection.attributesByIdentifier,
+        exclusionContext,
       );
 
       await appendDiagnosticsSnapshotProducts(
@@ -1041,24 +1184,12 @@ function encodeShopifyProductCursor(edge: ProductEdge, rawGeneration: string) {
   });
 }
 
-function emptyPage(): DiagnosticsPage {
-  return {
-    products: [],
-    pageInfo: {
-      hasNextPage: false,
-      hasPreviousPage: false,
-      startCursor: null,
-      endCursor: null,
-    },
-    scanVersion: "none",
-  };
-}
-
 async function fetchUnfilteredPage(
   admin: AdminGraphQLClient,
   shop: string,
   rawGeneration: string,
   metafieldSelection: DiagnosticMetafieldSelection,
+  exclusionContext: DiagnosticsExclusionContext,
   after?: string | null,
   before?: string | null,
 ): Promise<DiagnosticsPage> {
@@ -1083,6 +1214,7 @@ async function fetchUnfilteredPage(
     admin,
     displayedEdges,
     metafieldSelection.attributesByIdentifier,
+    exclusionContext,
   );
 
   return {
@@ -1112,6 +1244,7 @@ async function fetchForwardFilteredPage(
   shop: string,
   rawGeneration: string,
   metafieldSelection: DiagnosticMetafieldSelection,
+  exclusionContext: DiagnosticsExclusionContext,
   tab: DiagnosticsTab,
   after?: string | null,
 ): Promise<DiagnosticsPage> {
@@ -1145,6 +1278,7 @@ async function fetchForwardFilteredPage(
       admin,
       result.page.edges,
       metafieldSelection.attributesByIdentifier,
+      exclusionContext,
     );
 
     for (let index = 0; index < result.page.edges.length; index += 1) {
@@ -1204,6 +1338,7 @@ async function fetchBackwardFilteredPage(
   shop: string,
   rawGeneration: string,
   metafieldSelection: DiagnosticMetafieldSelection,
+  exclusionContext: DiagnosticsExclusionContext,
   tab: DiagnosticsTab,
   before: string,
 ): Promise<DiagnosticsPage> {
@@ -1240,6 +1375,7 @@ async function fetchBackwardFilteredPage(
       admin,
       result.page.edges,
       metafieldSelection.attributesByIdentifier,
+      exclusionContext,
     );
 
     for (let index = result.page.edges.length - 1; index >= 0; index -= 1) {
@@ -1304,10 +1440,6 @@ async function fetchDiagnosticsPage(
   rawGeneration: string,
   options: DiagnosticsPageOptions,
 ) {
-  if (options.tab === "excluded") {
-    return emptyPage();
-  }
-
   if (!options.force) {
     const snapshotPage = await readDiagnosticsSnapshotPage(shop, options.tab, {
       after: options.after,
@@ -1331,6 +1463,7 @@ async function fetchDiagnosticsPage(
   }
 
   const metafieldSelection = await getDiagnosticMetafieldKeys(admin, shop);
+  const exclusionContext = await getDiagnosticsExclusionContext(admin, shop);
 
   if (options.tab === "all") {
     return fetchUnfilteredPage(
@@ -1338,6 +1471,7 @@ async function fetchDiagnosticsPage(
       shop,
       rawGeneration,
       metafieldSelection,
+      exclusionContext,
       options.after,
       options.before,
     );
@@ -1349,6 +1483,7 @@ async function fetchDiagnosticsPage(
       shop,
       rawGeneration,
       metafieldSelection,
+      exclusionContext,
       options.tab,
       options.before,
     );
@@ -1359,6 +1494,7 @@ async function fetchDiagnosticsPage(
     shop,
     rawGeneration,
     metafieldSelection,
+    exclusionContext,
     options.tab,
     options.after,
   );
@@ -1383,6 +1519,46 @@ function invalidateCountsCacheForShop(shop: string, exceptKey?: string) {
   }
 }
 
+function addSnapshotFreshness(
+  snapshot: DiagnosticsSnapshotCounts,
+  currentConfigurationRevision: string,
+): DiagnosticsCounts {
+  return {
+    ...snapshot,
+    hasSnapshot: true,
+    isStale: snapshot.configurationRevision !== currentConfigurationRevision,
+  };
+}
+
+function emptyDiagnosticsCounts(
+  configurationRevision: string,
+): DiagnosticsCounts {
+  return {
+    allProducts: 0,
+    submitted: 0,
+    warnings: 0,
+    excluded: 0,
+    configurationRevision,
+    generatedAt: "",
+    hasSnapshot: false,
+    isStale: true,
+    scanVersion: "",
+  };
+}
+
+function emptyDiagnosticsPage(scanVersion = ""): DiagnosticsPage {
+  return {
+    products: [],
+    pageInfo: {
+      hasNextPage: false,
+      hasPreviousPage: false,
+      startCursor: null,
+      endCursor: null,
+    },
+    scanVersion,
+  };
+}
+
 export async function getDiagnosticsCounts(
   admin: AdminGraphQLClient,
   shop: string,
@@ -1392,47 +1568,42 @@ export async function getDiagnosticsCounts(
   const force = options.force ?? false;
   const rawGeneration = getRawGeneration(shop, force, options.refreshToken);
   const refreshRequestId = options.refreshToken ?? rawGeneration;
-  const scanVersion = `${DIAGNOSTICS_CLASSIFICATION_VERSION}:scan-${Date.now()}-${randomUUID()}`;
+  const rules = await getDiagnosticsConfigurationRules(shop);
 
   if (!force) {
     const readySnapshot = await findReadyDiagnosticsSnapshot(shop);
 
     if (readySnapshot) {
-      const snapshotKey = `${normalizedShop}|snapshot-${readySnapshot.scanVersion}`;
+      const snapshotKey = `${normalizedShop}|snapshot-${readySnapshot.scanVersion}|config-${rules.revision}`;
       return getCachedValue(countsCache, snapshotKey, COUNTS_CACHE_TTL_MS, () =>
-        Promise.resolve(readySnapshot),
+        Promise.resolve(addSnapshotFreshness(readySnapshot, rules.revision)),
       );
     }
+
+    return emptyDiagnosticsCounts(rules.revision);
   }
 
-  const key = force
-    ? `${normalizedShop}|${DIAGNOSTICS_CLASSIFICATION_VERSION}|refresh-${refreshRequestId}`
-    : `${normalizedShop}|${DIAGNOSTICS_CLASSIFICATION_VERSION}|build-latest`;
+  const key = `${normalizedShop}|${DIAGNOSTICS_CLASSIFICATION_VERSION}|config-${rules.revision}|refresh-${refreshRequestId}`;
 
-  if (force) {
-    invalidateCountsCacheForShop(shop, key);
-  }
+  invalidateCountsCacheForShop(shop, key);
 
   return getCachedValue(countsCache, key, COUNTS_CACHE_TTL_MS, async () => {
-    if (!force) {
-      // Another app instance may have completed the shared snapshot between
-      // the first lookup and this process acquiring its in-flight cache entry.
-      const readySnapshot = await findReadyDiagnosticsSnapshot(shop);
-
-      if (readySnapshot) {
-        return readySnapshot;
-      }
-    }
-
+    const exclusionContext = await getDiagnosticsExclusionContext(
+      admin,
+      shop,
+      rules,
+    );
+    const scanVersion = `${DIAGNOSTICS_CLASSIFICATION_VERSION}:config-${encodeURIComponent(exclusionContext.rules.revision)}:scan-${Date.now()}-${randomUUID()}`;
     const counts = await fetchStoreWideDiagnosticsCounts(
       admin,
       shop,
       rawGeneration,
       scanVersion,
+      exclusionContext,
     );
     invalidateCountsCacheForShop(shop, key);
     invalidatePageCacheForShop(shop);
-    return counts;
+    return addSnapshotFreshness(counts, rules.revision);
   });
 }
 
@@ -1443,10 +1614,19 @@ export async function getDiagnosticsPage(
 ) {
   const force = options.force ?? false;
   const normalizedSearch = normalizeDiagnosticsSearch(options.search ?? "");
-  const rawGeneration = getRawGeneration(shop, force, options.refreshToken);
   let readySnapshot = force
     ? null
     : await findReadyDiagnosticsSnapshot(shop, options.snapshotVersion);
+
+  if (force) {
+    const refreshedCounts = await getDiagnosticsCounts(admin, shop, {
+      force: true,
+      refreshToken: options.refreshToken,
+    });
+    readySnapshot = refreshedCounts.hasSnapshot
+      ? await findReadyDiagnosticsSnapshot(shop, refreshedCounts.scanVersion)
+      : null;
+  }
 
   if (
     options.snapshotVersion &&
@@ -1456,23 +1636,15 @@ export async function getDiagnosticsPage(
     throw new DiagnosticsDataError();
   }
 
-  if (normalizedSearch && !readySnapshot) {
-    await getDiagnosticsCounts(admin, shop, {
-      force,
-      refreshToken: options.refreshToken,
-    });
-    readySnapshot = await findReadyDiagnosticsSnapshot(shop);
+  if (!readySnapshot) {
+    return emptyDiagnosticsPage();
   }
-  const shouldReadShopify = force && !normalizedSearch;
 
-  if (shouldReadShopify) {
-    invalidatePageCacheForShop(shop);
-  }
+  const rawGeneration = getRawGeneration(shop, false, options.refreshToken);
 
   const direction = options.before ? "before" : "after";
   const cursor = options.before ?? options.after ?? "start";
-  const dataVersion =
-    readySnapshot?.scanVersion ?? getShopifyScanVersion(rawGeneration);
+  const dataVersion = readySnapshot.scanVersion;
   const key = [
     normalizeShop(shop),
     dataVersion,
@@ -1485,9 +1657,9 @@ export async function getDiagnosticsPage(
   return getCachedValue(pageCache, key, PAGE_CACHE_TTL_MS, () =>
     fetchDiagnosticsPage(admin, shop, rawGeneration, {
       ...options,
-      force: shouldReadShopify,
+      force: false,
       search: normalizedSearch,
-      snapshotVersion: readySnapshot?.scanVersion,
+      snapshotVersion: readySnapshot.scanVersion,
     }),
   );
 }

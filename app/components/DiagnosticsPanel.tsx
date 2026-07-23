@@ -333,6 +333,7 @@ export function DiagnosticsPanel({
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
   const [refreshFallback, setRefreshFallback] =
     useState<DiagnosticsRefreshFallback | null>(null);
   const [clientState, setClientState] = useState<DiagnosticsClientState>(() =>
@@ -375,23 +376,18 @@ export function DiagnosticsPanel({
   );
   const pageQuery = useQuery({
     ...pageQueryOptions,
-    enabled: queriesEnabled && selectedTab !== "excluded",
+    enabled: queriesEnabled && !isRefreshing,
     placeholderData: fallbackPage,
   });
   // Badge totals always come from the independent store-wide summary query.
   // Paginated page data is used only by the table below.
   const storeWideCounts = summaryQuery.data ?? refreshFallback?.counts;
-  const page =
-    selectedTab === "excluded" ? undefined : (pageQuery.data ?? fallbackPage);
+  const page = pageQuery.data ?? fallbackPage;
   const countsError = summaryQuery.isError ? summaryQuery.error.message : null;
-  const pageError =
-    selectedTab !== "excluded" && pageQuery.isError
-      ? pageQuery.error.message
-      : null;
+  const pageError = pageQuery.isError ? pageQuery.error.message : null;
   const countsLoading = summaryQuery.isPending && !storeWideCounts;
   const countsRefreshing = isRefreshing && summaryQuery.isFetching;
-  const pageLoading =
-    selectedTab !== "excluded" && pageQuery.isPending && !page;
+  const pageLoading = pageQuery.isPending && !page;
 
   useEffect(() => {
     const nextSearch = normalizeDiagnosticsSearch(searchTerm);
@@ -414,7 +410,6 @@ export function DiagnosticsPanel({
     if (
       !active ||
       !scope ||
-      selectedTab === "excluded" ||
       isRefreshing ||
       pageQuery.isFetching ||
       pageQuery.isPlaceholderData ||
@@ -526,6 +521,7 @@ export function DiagnosticsPanel({
     const nextState = createDiagnosticsClientState(
       Math.max(Date.now(), clientState.generation + 1),
     );
+    const previousClientState = clientState;
     const previousFallback: DiagnosticsRefreshFallback = {
       counts: storeWideCounts,
       ...(page
@@ -540,6 +536,7 @@ export function DiagnosticsPanel({
 
     queryClient.setQueryData(diagnosticsKeys.clientState(scope), nextState);
     flushSync(() => {
+      setRefreshError(null);
       setRefreshFallback(previousFallback);
       setIsRefreshing(true);
       setClientState(nextState);
@@ -548,52 +545,63 @@ export function DiagnosticsPanel({
     });
 
     try {
-      const refreshRequests: Array<Promise<unknown>> = [
-        queryClient.fetchQuery(
-          diagnosticsSummaryQueryOptions(scope, nextState.generation, {
-            endpoint: dataEndpoint,
-            force: true,
-          }),
+      const refreshedCounts = await queryClient.fetchQuery(
+        diagnosticsSummaryQueryOptions(scope, nextState.generation, {
+          endpoint: dataEndpoint,
+          force: true,
+        }),
+      );
+
+      if (!refreshedCounts.hasSnapshot || !refreshedCounts.scanVersion) {
+        throw new Error("The refreshed Diagnostics snapshot is unavailable.");
+      }
+
+      const refreshedPageRequest = {
+        after: null,
+        snapshotVersion: refreshedCounts.scanVersion,
+      };
+      await queryClient.fetchQuery(
+        diagnosticsProductsQueryOptions(
+          scope,
+          nextState.generation,
+          selectedTab,
+          refreshedPageRequest,
+          { endpoint: dataEndpoint },
         ),
-      ];
+      );
+      const completedState: DiagnosticsClientState = {
+        ...nextState,
+        tabs: {
+          ...nextState.tabs,
+          [selectedTab]: {
+            ...nextState.tabs[selectedTab],
+            history: [refreshedPageRequest],
+          },
+        },
+      };
 
-      if (selectedTab !== "excluded") {
-        refreshRequests.push(
-          queryClient.fetchQuery(
-            diagnosticsProductsQueryOptions(
-              scope,
-              nextState.generation,
-              selectedTab,
-              nextState.tabs[selectedTab].history[0],
-              { endpoint: dataEndpoint, force: true },
-            ),
-          ),
-        );
-      }
-
-      const results = await Promise.allSettled(refreshRequests);
-      const summarySucceeded = results[0]?.status === "fulfilled";
-      const pageSucceeded =
-        selectedTab === "excluded" || results[1]?.status === "fulfilled";
-
-      if (summarySucceeded && pageSucceeded) {
-        queryClient.removeQueries({
-          queryKey: diagnosticsKeys.shop(scope.shop),
-          predicate: (query) =>
-            query.queryKey[2] === scope.sessionId &&
-            query.queryKey[3] !== nextState.generation,
-        });
-        setRefreshFallback(null);
-      } else {
-        setRefreshFallback((currentFallback) => {
-          const nextFallback: DiagnosticsRefreshFallback = {
-            counts: summarySucceeded ? undefined : currentFallback?.counts,
-            page: pageSucceeded ? undefined : currentFallback?.page,
-          };
-
-          return nextFallback.counts || nextFallback.page ? nextFallback : null;
-        });
-      }
+      queryClient.setQueryData(
+        diagnosticsKeys.clientState(scope),
+        completedState,
+      );
+      setClientState(completedState);
+      queryClient.removeQueries({
+        queryKey: diagnosticsKeys.shop(scope.shop),
+        predicate: (query) =>
+          query.queryKey[2] === scope.sessionId &&
+          query.queryKey[3] !== nextState.generation,
+      });
+      setRefreshFallback(null);
+    } catch {
+      queryClient.setQueryData(
+        diagnosticsKeys.clientState(scope),
+        previousClientState,
+      );
+      setClientState(previousClientState);
+      setRefreshFallback(null);
+      setRefreshError(
+        "Diagnostics couldn't be refreshed. The previous results are still available.",
+      );
     } finally {
       setIsRefreshing(false);
     }
@@ -697,6 +705,48 @@ export function DiagnosticsPanel({
         </div>
       ) : null}
 
+      {refreshError ? (
+        <div className={styles.errorBanner}>
+          <s-banner heading="Diagnostics refresh failed" tone="warning">
+            {refreshError}
+            <s-button
+              disabled={isRefreshing}
+              onClick={refresh}
+              slot="secondary-actions"
+              variant="secondary"
+            >
+              Retry
+            </s-button>
+          </s-banner>
+        </div>
+      ) : null}
+
+      {storeWideCounts?.isStale ? (
+        <div className={styles.errorBanner}>
+          <s-banner
+            heading={
+              storeWideCounts.hasSnapshot
+                ? "Diagnostics results are outdated"
+                : "Diagnostics has not been analyzed yet"
+            }
+            tone={storeWideCounts.hasSnapshot ? "warning" : "info"}
+          >
+            {storeWideCounts.hasSnapshot
+              ? "Configuration changed. Refresh Diagnostics when you're ready to apply the latest settings."
+              : "Select Refresh to analyze eligible products for this store."}
+            <s-button
+              disabled={isRefreshing}
+              loading={isRefreshing ? true : undefined}
+              onClick={refresh}
+              slot="secondary-actions"
+              variant="secondary"
+            >
+              Refresh
+            </s-button>
+          </s-banner>
+        </div>
+      ) : null}
+
       <div className={styles.card}>
         <div
           aria-label="Diagnostic product status"
@@ -727,7 +777,11 @@ export function DiagnosticsPanel({
                   isLoading={countsLoading}
                   isRefreshing={countsRefreshing}
                   toneClass={badgeToneClass[tab.id]}
-                  value={storeWideCounts?.[tab.countKey]}
+                  value={
+                    storeWideCounts?.hasSnapshot
+                      ? storeWideCounts[tab.countKey]
+                      : undefined
+                  }
                 />
               </button>
             );
@@ -741,46 +795,42 @@ export function DiagnosticsPanel({
           role="tabpanel"
           tabIndex={0}
         >
-          {selectedTab === "excluded" ? null : (
-            <>
-              <div className={styles.searchArea}>
-                <s-search-field
-                  label="Search products in this tab"
-                  labelAccessibilityVisibility="exclusive"
-                  onInput={(event) => {
-                    const nextValue = event.currentTarget.value;
-                    setSearchTerm(nextValue);
+          <div className={styles.searchArea}>
+            <s-search-field
+              label="Search products in this tab"
+              labelAccessibilityVisibility="exclusive"
+              onInput={(event) => {
+                const nextValue = event.currentTarget.value;
+                setSearchTerm(nextValue);
 
-                    if (!normalizeDiagnosticsSearch(nextValue)) {
-                      setDebouncedSearch("");
-                    }
-                  }}
-                  placeholder="Search products"
-                  value={searchTerm}
-                />
-              </div>
+                if (!normalizeDiagnosticsSearch(nextValue)) {
+                  setDebouncedSearch("");
+                }
+              }}
+              placeholder="Search products"
+              value={searchTerm}
+            />
+          </div>
 
-              {pageError ? (
-                <div className={styles.tableError}>
-                  <s-banner heading="Products are unavailable" tone="warning">
-                    {pageError} Previous products are still shown when
-                    available. Select Refresh to try again.
-                  </s-banner>
-                </div>
-              ) : null}
+          {pageError ? (
+            <div className={styles.tableError}>
+              <s-banner heading="Products are unavailable" tone="warning">
+                {pageError} Previous products are still shown when available.
+                Select Refresh to try again.
+              </s-banner>
+            </div>
+          ) : null}
 
-              <DiagnosticsTable
-                canGoPrevious={navigation.index > 0}
-                error={pageError}
-                isLoading={pageLoading}
-                onNext={loadNext}
-                onPrevious={loadPrevious}
-                pageInfo={page?.pageInfo}
-                products={page?.products ?? []}
-                searchTerm={searchTerm}
-              />
-            </>
-          )}
+          <DiagnosticsTable
+            canGoPrevious={navigation.index > 0}
+            error={pageError}
+            isLoading={pageLoading}
+            onNext={loadNext}
+            onPrevious={loadPrevious}
+            pageInfo={page?.pageInfo}
+            products={page?.products ?? []}
+            searchTerm={searchTerm}
+          />
         </div>
       </div>
     </div>
