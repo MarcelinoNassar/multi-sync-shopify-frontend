@@ -14,21 +14,54 @@ datasource db {
 }
 
 model Session {
-  id            String    @id @map("_id")
-  shop          String
-  state         String
-  isOnline      Boolean   @default(false)
-  scope         String?
-  expires       DateTime?
-  accessToken   String
-  userId        BigInt?
-  firstName     String?
-  lastName      String?
-  email         String?
-  accountOwner  Boolean   @default(false)
-  locale        String?
-  collaborator  Boolean?  @default(false)
-  emailVerified Boolean?  @default(false)
+  id                  String    @id @map("_id")
+  shop                String
+  state               String
+  isOnline            Boolean   @default(false)
+  scope               String?
+  expires             DateTime?
+  accessToken         String
+  userId              BigInt?
+  firstName           String?
+  lastName            String?
+  email               String?
+  accountOwner        Boolean   @default(false)
+  locale              String?
+  collaborator        Boolean?  @default(false)
+  emailVerified       Boolean?  @default(false)
   refreshToken        String?
   refreshTokenExpires DateTime?
+}
+
+model DiagnosticsSnapshot {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  shop        String
+  scanVersion String
+  status      String
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
+  allProducts Int       @default(0)
+  submitted   Int       @default(0)
+  warnings    Int       @default(0)
+  excluded    Int       @default(0)
+
+  @@unique([shop, scanVersion])
+  @@index([shop, status, completedAt])
+}
+
+model DiagnosticsSnapshotProduct {
+  id          String  @id @default(auto()) @map("_id") @db.ObjectId
+  shop        String
+  scanVersion String
+  productId   String
+  position    Int
+  title       String
+  imageUrl    String?
+  imageAlt    String?
+  status      String
+  warningData Json
+
+  @@unique([shop, scanVersion, productId])
+  @@index([shop, scanVersion, position])
+  @@index([shop, scanVersion, status, position])
 }

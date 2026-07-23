@@ -1,13 +1,9 @@
+import { ACTIVE_ONLINE_STORE_PRODUCT_QUERY } from "./catalog-query";
+
 const STATISTICS_CACHE_TTL_MS = 2 * 60 * 1000;
 const STORE_INFORMATION_CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_CACHE_ENTRIES = 500;
 const PAGE_SIZE = 250;
-
-// In Shopify's product search syntax, `published_status:published` specifically
-// means visible on the Online Store. Pairing it with `status:active` excludes
-// drafts, archived products, and active products published only elsewhere.
-const PUBLISHED_ONLINE_STORE_QUERY =
-  "status:active AND published_status:published";
 
 type CountPrecision = "EXACT" | "AT_LEAST";
 
@@ -256,7 +252,7 @@ async function fetchProductStatistics(
   const initialPayload = await queryShopify<InitialStatisticsQuery>(
     admin,
     INITIAL_STATISTICS_QUERY,
-    { publishedQuery: PUBLISHED_ONLINE_STORE_QUERY },
+    { publishedQuery: ACTIVE_ONLINE_STORE_PRODUCT_QUERY },
   );
   const initial = initialPayload.data;
 
@@ -286,7 +282,7 @@ async function fetchProductStatistics(
       PUBLISHED_PRODUCTS_PAGE_QUERY,
       {
         after: pageInfo.endCursor,
-        publishedQuery: PUBLISHED_ONLINE_STORE_QUERY,
+        publishedQuery: ACTIVE_ONLINE_STORE_PRODUCT_QUERY,
       },
     );
     const page = pagePayload.data?.publishedProductPage;

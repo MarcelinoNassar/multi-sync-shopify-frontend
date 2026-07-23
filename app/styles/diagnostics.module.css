@@ -1,0 +1,449 @@
+.diagnostics {
+  color: #303030;
+  font-family:
+    Inter,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.errorBanner {
+  margin-bottom: 16px;
+}
+
+.card {
+  overflow: hidden;
+  border: 1px solid #e3e3e3;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 1px 0 rgb(0 0 0 / 4%);
+}
+
+.innerTabs {
+  display: flex;
+  gap: 20px;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 0 16px;
+  border-bottom: 1px solid #e3e3e3;
+  background: #fafafa;
+  scrollbar-width: none;
+}
+
+.innerTabs::-webkit-scrollbar {
+  display: none;
+}
+
+.innerTab {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 54px;
+  padding: 10px 4px;
+  border: 0;
+  background: transparent;
+  color: #616161;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.innerTab:hover {
+  color: #303030;
+}
+
+.innerTab:focus-visible,
+.innerPanel:focus-visible {
+  outline: 2px solid #005bd3;
+  outline-offset: -2px;
+}
+
+.innerTab[aria-selected="true"] {
+  color: #202223;
+}
+
+.innerTab[aria-selected="true"]::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  border-radius: 3px 3px 0 0;
+  background: #303030;
+  content: "";
+}
+
+.badgeValue,
+.badgeSkeleton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  line-height: 20px;
+}
+
+.badgeAll {
+  background: #dbeafe;
+  color: #1e3a8a;
+}
+
+.badgeSubmitted {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.badgeWarning,
+.badgeExcluded {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.badgeWarning {
+  background: #fff1d6;
+  color: #8a4b00;
+}
+
+.badgeSkeleton {
+  width: 28px;
+  min-width: 28px;
+  padding: 0;
+  background: linear-gradient(90deg, #dedede 25%, #f5f5f5 37%, #dedede 63%);
+  background-size: 400% 100%;
+  animation: diagnosticsShimmer 1.4s ease infinite;
+}
+
+.badgeRefreshSpinner {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  margin-left: 5px;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  opacity: 0.75;
+  animation: diagnosticsSpin 0.7s linear infinite;
+}
+
+.innerPanel {
+  min-height: 574px;
+  outline: none;
+}
+
+.searchArea {
+  max-width: 420px;
+  padding: 16px 20px;
+}
+
+.tableError {
+  padding: 0 20px 16px;
+}
+
+.tableViewport {
+  height: 448px;
+  overflow: auto;
+  border-top: 1px solid #e3e3e3;
+  border-bottom: 1px solid #e3e3e3;
+}
+
+.diagnosticsTable {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+}
+
+.diagnosticsTable th {
+  position: sticky;
+  z-index: 2;
+  top: 0;
+  height: 48px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #d4d4d4;
+  background: #f7f7f7;
+  color: #303030;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: left;
+}
+
+.diagnosticsTable th:first-child {
+  width: 38%;
+}
+
+.diagnosticsTable th:nth-child(2) {
+  width: 24%;
+}
+
+.diagnosticsTable th:nth-child(3) {
+  width: 38%;
+}
+
+.diagnosticsTable td {
+  height: 76px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #ebebeb;
+  background: #fff;
+  color: #303030;
+  font-size: 13px;
+  line-height: 19px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.diagnosticsTable tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.diagnosticsTable tbody tr:hover td {
+  background: #fafafa;
+}
+
+.googleHeader,
+.statusCell {
+  text-align: center !important;
+}
+
+.googleHeader img {
+  display: block;
+  width: 26px;
+  height: 26px;
+  margin: 0 auto;
+  object-fit: contain;
+}
+
+.productCell,
+.skeletonProduct {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.productImage,
+.imageFallback,
+.skeletonImage {
+  display: inline-flex;
+  flex: 0 0 48px;
+  width: 48px;
+  height: 48px;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px solid #e3e3e3;
+  border-radius: 8px;
+  background: #f1f1f1;
+  object-fit: cover;
+}
+
+.imageFallback span {
+  width: 20px;
+  height: 16px;
+  border: 2px solid #b5b5b5;
+  border-radius: 3px;
+}
+
+.productTitle {
+  min-width: 0;
+  overflow: hidden;
+  color: #303030;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.productTitle:hover {
+  color: #303030;
+  text-decoration: underline;
+}
+
+.productTitle:focus-visible {
+  border-radius: 3px;
+  outline: 2px solid #005bd3;
+  outline-offset: 2px;
+}
+
+.statusSubmitted,
+.statusWarning,
+.statusError {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  vertical-align: middle;
+}
+
+.statusSubmitted {
+  color: #29845a;
+}
+
+.statusWarning {
+  color: #d97706;
+}
+
+.statusError {
+  color: #b42318;
+}
+
+.warningList {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  color: #6d4c00;
+  list-style: none;
+}
+
+.warningList li::before {
+  margin-right: 6px;
+  color: #b98900;
+  content: "•";
+}
+
+.noWarnings {
+  color: #528060;
+}
+
+.emptyCell {
+  height: 220px !important;
+  color: #616161 !important;
+  text-align: center !important;
+}
+
+.pagination {
+  display: flex;
+  min-height: 64px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 20px;
+  background: #fff;
+}
+
+.paginationStatus {
+  color: #616161;
+  font-size: 13px;
+}
+
+.paginationButtons {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.skeletonImage,
+.skeletonTitle,
+.skeletonStatus,
+.skeletonWarning,
+.skeletonWarningShort {
+  display: inline-block;
+  border: 0;
+  background: linear-gradient(90deg, #ebebeb 25%, #f7f7f7 37%, #ebebeb 63%);
+  background-size: 400% 100%;
+  animation: diagnosticsShimmer 1.4s ease infinite;
+}
+
+.skeletonTitle {
+  width: min(190px, 70%);
+  height: 14px;
+  border-radius: 6px;
+}
+
+.skeletonStatus {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+}
+
+.skeletonWarning,
+.skeletonWarningShort {
+  display: block;
+  width: min(260px, 82%);
+  height: 12px;
+  border-radius: 5px;
+}
+
+.skeletonWarningShort {
+  width: min(170px, 56%);
+  margin-top: 8px;
+}
+
+@keyframes diagnosticsShimmer {
+  0% {
+    background-position: 100% 0;
+  }
+
+  100% {
+    background-position: 0 0;
+  }
+}
+
+@media (max-width: 600px) {
+  .header {
+    align-items: flex-start;
+  }
+
+  .header s-paragraph {
+    display: none;
+  }
+
+  .innerTabs {
+    gap: 14px;
+    padding-inline: 6px;
+  }
+
+  .innerTab {
+    min-height: 52px;
+    padding-inline: 3px;
+  }
+
+  .searchArea {
+    max-width: none;
+    padding-inline: 12px;
+  }
+
+  .pagination {
+    align-items: flex-start;
+    flex-direction: column;
+    padding-inline: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .badgeRefreshSpinner,
+  .badgeSkeleton,
+  .skeletonImage,
+  .skeletonTitle,
+  .skeletonStatus,
+  .skeletonWarning,
+  .skeletonWarningShort {
+    animation: none;
+  }
+}
+
+@keyframes diagnosticsSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}

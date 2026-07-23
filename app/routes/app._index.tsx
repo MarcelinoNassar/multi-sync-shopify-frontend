@@ -27,6 +27,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     // Router discards stale loader results after navigation or revalidation.
     storeInformation: getStoreInformation(admin, session.shop),
     statistics: getProductStatistics(admin, session.shop),
+    diagnosticsScope: {
+      shop: session.shop,
+      sessionId: session.id,
+    },
   };
 };
 
@@ -38,7 +42,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function Index() {
-  const { statistics, storeInformation } = useLoaderData<typeof loader>();
+  const { diagnosticsScope, statistics, storeInformation } =
+    useLoaderData<typeof loader>();
   const refreshFetcher = useFetcher<typeof action>();
   const isRefreshing = refreshFetcher.state !== "idle";
   const refresh = () => refreshFetcher.submit(null, { method: "post" });
@@ -46,6 +51,7 @@ export default function Index() {
   return (
     <s-page heading="Multi Sync" inlineSize="large">
       <DashboardTabs
+        diagnosticsScope={diagnosticsScope}
         isRefreshing={isRefreshing}
         onRefresh={refresh}
         statistics={statistics}
@@ -59,6 +65,7 @@ export function HydrateFallback() {
   return (
     <s-page heading="Multi Sync" inlineSize="large">
       <DashboardTabs
+        diagnosticsScope={null}
         isRefreshing={false}
         onRefresh={() => undefined}
         statistics={pendingStatistics}

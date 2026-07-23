@@ -2,10 +2,12 @@ import { Suspense, useRef, useState, type KeyboardEvent } from "react";
 import { Await } from "react-router";
 
 import { InlineLoadingValue, SectionError } from "./DashboardStates";
+import { DiagnosticsPanel } from "./DiagnosticsPanel";
 import type {
   ProductStatistics,
   StoreInformation,
 } from "../services/dashboard.server";
+import type { DiagnosticsQueryScope } from "../services/diagnostics-query";
 import styles from "../styles/dashboard.module.css";
 
 const tabs = [
@@ -20,6 +22,7 @@ type SectionState = "loading" | "ready" | "error";
 type StatisticKey = Exclude<keyof ProductStatistics, "generatedAt">;
 
 interface DashboardTabsProps {
+  diagnosticsScope: DiagnosticsQueryScope | null;
   statistics: Promise<ProductStatistics>;
   storeInformation: Promise<StoreInformation>;
   isRefreshing: boolean;
@@ -361,17 +364,38 @@ export function DashboardTabs(props: DashboardTabsProps) {
         <DashboardPanelContent {...props} />
       </div>
 
-      {tabs.slice(1).map((tab) => (
-        <div
-          aria-labelledby={`tab-${tab.id}`}
-          className={styles.emptyPanel}
-          hidden={activeTab !== tab.id}
-          id={`panel-${tab.id}`}
-          key={tab.id}
-          role="tabpanel"
-          tabIndex={0}
+      <div
+        aria-labelledby="tab-diagnostics"
+        className={styles.panel}
+        hidden={activeTab !== "diagnostics"}
+        id="panel-diagnostics"
+        role="tabpanel"
+        tabIndex={0}
+      >
+        <DiagnosticsPanel
+          active={activeTab === "diagnostics"}
+          key={
+            props.diagnosticsScope
+              ? `${props.diagnosticsScope.shop}:${props.diagnosticsScope.sessionId}`
+              : "diagnostics-pending"
+          }
+          scope={props.diagnosticsScope}
         />
-      ))}
+      </div>
+
+      {tabs
+        .filter((tab) => tab.id === "feeds" || tab.id === "configurations")
+        .map((tab) => (
+          <div
+            aria-labelledby={`tab-${tab.id}`}
+            className={styles.emptyPanel}
+            hidden={activeTab !== tab.id}
+            id={`panel-${tab.id}`}
+            key={tab.id}
+            role="tabpanel"
+            tabIndex={0}
+          />
+        ))}
     </div>
   );
 }
