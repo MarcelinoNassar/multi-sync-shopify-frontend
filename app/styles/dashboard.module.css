@@ -1,0 +1,245 @@
+.contentShell {
+  width: 100%;
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.tabList {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 0 4px;
+  border-bottom: 1px solid #dfe3e8;
+  scrollbar-width: none;
+}
+
+.tabList::-webkit-scrollbar {
+  display: none;
+}
+
+.tab {
+  position: relative;
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 8px 8px 0 0;
+  background: transparent;
+  color: #616161;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 550;
+  line-height: 20px;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+.tab:hover {
+  background: #f1f1f1;
+  color: #303030;
+}
+
+.tab:focus-visible {
+  outline: 2px solid #005bd3;
+  outline-offset: -2px;
+}
+
+.tab[aria-selected="true"] {
+  color: #303030;
+}
+
+.tab[aria-selected="true"]::after {
+  position: absolute;
+  right: 10px;
+  bottom: 0;
+  left: 10px;
+  height: 3px;
+  border-radius: 3px 3px 0 0;
+  background: #303030;
+  content: "";
+}
+
+.panel {
+  padding: 24px 4px 4px;
+  outline: none;
+}
+
+.panel:focus-visible,
+.emptyPanel:focus-visible {
+  border-radius: 8px;
+  outline: 2px solid #005bd3;
+  outline-offset: 2px;
+}
+
+.dashboardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.refreshArea {
+  flex: 0 0 auto;
+}
+
+.cardGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.65fr) minmax(280px, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.numericValue {
+  display: block;
+  color: #303030;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  text-align: end;
+}
+
+.tableHeaderText {
+  font-weight: 700;
+}
+
+.descriptionList {
+  margin: 0;
+}
+
+.descriptionRow {
+  display: grid;
+  grid-template-columns: minmax(86px, 0.65fr) minmax(0, 1.35fr);
+  gap: 16px;
+  align-items: center;
+  min-height: 48px;
+  padding: 10px 0;
+  border-bottom: 1px solid #ebebeb;
+}
+
+.descriptionRow:first-child {
+  padding-top: 0;
+}
+
+.descriptionRow:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.descriptionRow dt {
+  color: #616161;
+  font-size: 13px;
+  font-weight: 550;
+}
+
+.descriptionRow dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #303030;
+  font-size: 14px;
+  font-weight: 550;
+  text-align: end;
+}
+
+.emptyPanel {
+  min-height: 280px;
+  margin: 24px 4px 4px;
+  outline: none;
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+.loadingValue {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+}
+
+.inlineSkeleton {
+  display: inline-block;
+  width: 56px;
+  height: 14px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #ebebeb 25%, #f7f7f7 37%, #ebebeb 63%);
+  background-size: 400% 100%;
+  animation: skeletonShimmer 1.4s ease infinite;
+}
+
+.inlineSkeletonLarge {
+  width: min(180px, 38vw);
+}
+
+.unavailableValue {
+  color: #8a8a8a;
+  font-weight: 450;
+}
+
+@keyframes skeletonShimmer {
+  0% {
+    background-position: 100% 0;
+  }
+
+  100% {
+    background-position: 0 0;
+  }
+}
+
+@media (max-width: 900px) {
+  .cardGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 489px) {
+  .tabList {
+    margin-inline: -4px;
+    padding-inline: 0;
+  }
+
+  .tab {
+    min-height: 48px;
+    padding-inline: 11px;
+  }
+
+  .panel {
+    padding-top: 20px;
+  }
+
+  .dashboardHeader {
+    align-items: flex-start;
+  }
+
+  .dashboardHeader s-paragraph {
+    display: none;
+  }
+
+  .descriptionRow {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .descriptionRow dd {
+    text-align: start;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inlineSkeleton {
+    animation: none;
+  }
+
+  .tab {
+    transition: none;
+  }
+}

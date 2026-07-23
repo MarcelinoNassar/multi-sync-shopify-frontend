@@ -4,8 +4,40 @@ import {
   AppDistribution,
   shopifyApp,
 } from "@shopify/shopify-app-react-router/server";
-import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
-import prisma from "./db.server";
+import { MongoDBSessionStorage } from "@shopify/shopify-app-session-storage-mongodb";
+
+const databaseUrl = process.env.DATABASE_URL;
+
+if (!databaseUrl) {
+  throw new Error("DATABASE_URL is required for Shopify session storage");
+}
+
+if (
+  !databaseUrl.startsWith("mongodb://") &&
+  !databaseUrl.startsWith("mongodb+srv://")
+) {
+  throw new Error("DATABASE_URL must be a MongoDB connection string");
+}
+
+const databaseUrlWithoutQuery = databaseUrl.split("?", 1)[0];
+const databaseName = decodeURIComponent(
+  databaseUrlWithoutQuery.slice(databaseUrlWithoutQuery.lastIndexOf("/") + 1),
+);
+
+if (!databaseName) {
+  throw new Error("DATABASE_URL must include a MongoDB database name");
+}
+
+// Shopify's adapter accepts a URL object, while MongoDB also supports
+// multi-host connection strings that Node's URL class cannot parse.
+const mongoConnectionUrl = {
+  toString: () => databaseUrl,
+} as URL;
+
+const mongoSessionStorage = new MongoDBSessionStorage(
+  mongoConnectionUrl,
+  databaseName,
+);
 
 const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY,
@@ -14,7 +46,7 @@ const shopify = shopifyApp({
   scopes: process.env.SCOPES?.split(","),
   appUrl: process.env.SHOPIFY_APP_URL || "",
   authPathPrefix: "/auth",
-  sessionStorage: new PrismaSessionStorage(prisma),
+  sessionStorage: mongoSessionStorage,
   distribution: AppDistribution.AppStore,
   future: {
     expiringOfflineAccessTokens: true,
