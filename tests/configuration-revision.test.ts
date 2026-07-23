@@ -8,8 +8,8 @@ import {
 
 test("equivalent Diagnostics settings produce the same revision", () => {
   const first = createDiagnosticsConfigurationRevision({
-    colorOption: " Colour ",
-    sizeOption: "Shoe   size",
+    colorOptions: [" Colour ", "Taille"],
+    sizeOptions: ["Shoe   size", "Taille"],
     excludedCollections: [
       { id: "gid://shopify/Collection/2", title: "Second" },
       { id: "gid://shopify/Collection/1", title: "First" },
@@ -17,8 +17,8 @@ test("equivalent Diagnostics settings produce the same revision", () => {
     excludedTitleTerms: [" Gift   card ", "Sample"],
   });
   const second = createDiagnosticsConfigurationRevision({
-    colorOption: "colour",
-    sizeOption: "shoe size",
+    colorOptions: ["taille", "colour"],
+    sizeOptions: ["taille", "shoe size"],
     excludedCollections: [
       { id: "gid://shopify/Collection/1", title: "Renamed First" },
       { id: "gid://shopify/Collection/2", title: "Second" },
@@ -44,10 +44,21 @@ test("the empty Diagnostics revision is stable", () => {
   assert.equal(
     EMPTY_DIAGNOSTICS_CONFIGURATION_REVISION,
     createDiagnosticsConfigurationRevision({
-      colorOption: null,
-      sizeOption: null,
       excludedCollections: [],
       excludedTitleTerms: [],
     }),
   );
+});
+
+test("changing an option-name mapping invalidates the Diagnostics revision", () => {
+  const previous = createDiagnosticsConfigurationRevision({
+    colorOptions: ["Color", "Colour"],
+    sizeOptions: ["Size"],
+  });
+  const next = createDiagnosticsConfigurationRevision({
+    colorOptions: ["Color", "Colour", "Couleur"],
+    sizeOptions: ["Size"],
+  });
+
+  assert.notEqual(previous, next);
 });

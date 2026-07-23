@@ -163,6 +163,36 @@
   text-align: center;
 }
 
+.optionModalContent {
+  display: grid;
+  gap: 16px;
+}
+
+.optionModalToolbar {
+  align-items: center;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.optionList {
+  border: 1px solid #e3e3e3;
+  border-radius: 10px;
+  height: 360px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.optionListItem {
+  border-bottom: 1px solid #ebebeb;
+  padding: 12px 14px;
+}
+
+.optionListItem:last-child {
+  border-bottom: 0;
+}
+
 .termInput {
   align-items: end;
   display: grid;
@@ -189,6 +219,11 @@
 
   .informationGrid,
   .features {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .optionModalToolbar {
+    align-items: stretch;
     grid-template-columns: minmax(0, 1fr);
   }
 }

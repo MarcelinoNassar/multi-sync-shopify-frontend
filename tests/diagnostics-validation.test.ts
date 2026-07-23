@@ -60,6 +60,137 @@ test("a metafield supplies an attribute missing from product options", () => {
   );
 });
 
+test("Couleur can be selected as Color", () => {
+  const diagnostic = validateDiagnosticProduct(
+    product({
+      options: [
+        { name: "Gender", values: ["Men"] },
+        { name: "Age", values: ["Adult"] },
+        { name: "Size", values: ["M"] },
+        { name: "Couleur", values: ["Noir"] },
+      ],
+    }),
+    {
+      ...noExclusions,
+      colorOptions: ["Couleur"],
+      sizeOptions: ["Size"],
+    },
+  );
+
+  assert.equal(
+    diagnostic.warnings.some((warning) => warning.code === "missing-color"),
+    false,
+  );
+});
+
+test("Taille can be selected independently as Size or Color", () => {
+  const tailleAsSize = validateDiagnosticProduct(
+    product({
+      options: [
+        { name: "Gender", values: ["Men"] },
+        { name: "Age", values: ["Adult"] },
+        { name: "Color", values: ["Noir"] },
+        { name: "Taille", values: ["M"] },
+      ],
+    }),
+    {
+      ...noExclusions,
+      colorOptions: ["Color"],
+      sizeOptions: ["Taille"],
+    },
+  );
+  const tailleAsColor = validateDiagnosticProduct(
+    product({
+      options: [
+        { name: "Gender", values: ["Men"] },
+        { name: "Age", values: ["Adult"] },
+        { name: "Taille", values: ["M"] },
+        { name: "Size", values: ["M"] },
+      ],
+    }),
+    {
+      ...noExclusions,
+      colorOptions: ["Taille"],
+      sizeOptions: ["Size"],
+    },
+  );
+
+  assert.equal(
+    tailleAsSize.warnings.some((warning) => warning.code === "missing-size"),
+    false,
+  );
+  assert.equal(
+    tailleAsColor.warnings.some((warning) => warning.code === "missing-color"),
+    false,
+  );
+});
+
+test("the same normalized option name can satisfy Color and Size", () => {
+  const diagnostic = validateDiagnosticProduct(
+    product({
+      options: [
+        { name: "Gender", values: ["Men"] },
+        { name: "Age", values: ["Adult"] },
+        { name: "  TAILLE  ", values: ["M"] },
+      ],
+    }),
+    {
+      ...noExclusions,
+      colorOptions: ["taille"],
+      sizeOptions: [" Taille "],
+    },
+  );
+
+  assert.equal(
+    diagnostic.warnings.some(
+      (warning) =>
+        warning.code === "missing-color" || warning.code === "missing-size",
+    ),
+    false,
+  );
+});
+
+test("valid product metafields independently supply Color and Size", () => {
+  const diagnostic = validateDiagnosticProduct(
+    product({
+      options: [
+        { name: "Gender", values: ["Men"] },
+        { name: "Age", values: ["Adult"] },
+      ],
+      metafields: [
+        {
+          attribute: "color",
+          namespace: "custom",
+          key: "color",
+          type: "single_line_text_field",
+          value: "Black",
+        },
+        {
+          attribute: "size",
+          namespace: "custom",
+          key: "size",
+          type: "single_line_text_field",
+          value: "M",
+        },
+      ],
+    }),
+    {
+      ...noExclusions,
+      colorOptions: ["Couleur"],
+      sizeOptions: ["Taille"],
+    },
+  );
+
+  assert.equal(
+    diagnostic.warnings.some((warning) => warning.code === "missing-color"),
+    false,
+  );
+  assert.equal(
+    diagnostic.warnings.some((warning) => warning.code === "missing-size"),
+    false,
+  );
+});
+
 test("selected collection membership excludes the product", () => {
   const diagnostic = validateDiagnosticProduct(
     product({ collectionIds: ["gid://shopify/Collection/123"] }),

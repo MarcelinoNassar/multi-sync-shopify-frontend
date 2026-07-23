@@ -1,26 +1,30 @@
 import { createHash } from "node:crypto";
 
 import {
+  DEFAULT_COLOR_OPTIONS,
+  DEFAULT_SIZE_OPTIONS,
   normalizeConfigurationText,
   normalizeExcludedTitleTerms,
+  normalizeOptionNames,
   normalizeSelectedCollections,
   type SelectedCollection,
 } from "./configuration-validation.ts";
 
 export interface DiagnosticsRevisionInput {
-  colorOption?: string | null;
+  colorOptions?: string[] | unknown;
   excludedCollections?: SelectedCollection[] | unknown;
   excludedTitleTerms?: string[] | unknown;
-  sizeOption?: string | null;
+  sizeOptions?: string[] | unknown;
 }
 
-function normalizeOption(value: string | null | undefined) {
-  if (!value) {
-    return null;
-  }
+function normalizeOptions(values: unknown, defaults: readonly string[]) {
+  const normalized = normalizeOptionNames(
+    Array.isArray(values) ? values : defaults,
+  );
 
-  const normalized = normalizeConfigurationText(value).toLocaleLowerCase();
-  return normalized || null;
+  return normalized
+    .map((value) => normalizeConfigurationText(value).toLocaleLowerCase())
+    .sort();
 }
 
 export function createDiagnosticsConfigurationRevision(
@@ -33,8 +37,8 @@ export function createDiagnosticsConfigurationRevision(
     .map((term) => term.toLocaleLowerCase())
     .sort();
   const normalizedInput = {
-    colorOption: normalizeOption(input.colorOption),
-    sizeOption: normalizeOption(input.sizeOption),
+    colorOptions: normalizeOptions(input.colorOptions, DEFAULT_COLOR_OPTIONS),
+    sizeOptions: normalizeOptions(input.sizeOptions, DEFAULT_SIZE_OPTIONS),
     excludedCollectionIds: collectionIds,
     excludedTitleTerms: titleTerms,
   };

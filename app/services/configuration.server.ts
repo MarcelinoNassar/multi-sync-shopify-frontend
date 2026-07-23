@@ -3,7 +3,11 @@ import type { Prisma } from "@prisma/client";
 import prisma from "../db.server";
 import { createDiagnosticsConfigurationRevision } from "./configuration-revision.server";
 import {
+  DEFAULT_COLOR_OPTIONS,
+  DEFAULT_SIZE_OPTIONS,
+  normalizeOptionNames,
   normalizeSelectedCollections,
+  resolveStoredOptionNames,
   type ConfigurationInput,
   type SelectedCollection,
   validateConfigurationInput,
@@ -12,7 +16,6 @@ import {
   queryShopifyAdmin,
   type AdminGraphQLClient,
 } from "./shopify-admin.server";
-import { findReadyDiagnosticsSnapshot } from "./diagnostics-snapshot.server";
 import { normalizeShopDomain } from "./store-lifecycle";
 import { upsertInstalledStore } from "./store.server";
 
@@ -23,13 +26,6 @@ const CONFIGURATION_BOOTSTRAP_QUERY = `#graphql
       email
       billingAddress {
         countryCodeV2
-      }
-    }
-    products(first: 100, sortKey: UPDATED_AT, reverse: true) {
-      nodes {
-        options {
-          name
-        }
       }
     }
   }
@@ -43,23 +39,21 @@ interface ConfigurationBootstrapQuery {
       countryCodeV2: string | null;
     };
   };
-  products: {
-    nodes: Array<{
-      options: Array<{ name: string }>;
-    }>;
-  };
 }
 
 interface StoredConfiguration {
   alertsEmail: string;
   colorOption: string | null;
+  colorOptions: string[];
   countryCode: string;
   createdAt: Date;
   diagnosticsRevision: string;
   excludedCollections: Prisma.JsonValue;
   excludedTitleTerms: string[];
   id: string;
+  optionMappingsInitialized: boolean;
   sizeOption: string | null;
+  sizeOptions: string[];
   storeId: string;
   updatedAt: Date;
 }
@@ -70,9 +64,11 @@ export interface PublicConfiguration extends ConfigurationInput {
 }
 
 export interface DiagnosticsConfigurationRules {
+  colorOptions: string[];
   excludedCollections: SelectedCollection[];
   excludedTitleTerms: string[];
   revision: string;
+  sizeOptions: string[];
 }
 
 function mapConfiguration(
@@ -82,8 +78,8 @@ function mapConfiguration(
     id: configuration.id,
     alertsEmail: configuration.alertsEmail,
     countryCode: configuration.countryCode,
-    colorOption: configuration.colorOption,
-    sizeOption: configuration.sizeOption,
+    colorOptions: normalizeOptionNames(configuration.colorOptions),
+    sizeOptions: normalizeOptionNames(configuration.sizeOptions),
     excludedCollections: normalizeSelectedCollections(
       configuration.excludedCollections,
     ),
@@ -94,10 +90,42 @@ function mapConfiguration(
 
 function getStoredDiagnosticsRevision(configuration: StoredConfiguration) {
   return createDiagnosticsConfigurationRevision({
-    colorOption: configuration.colorOption,
+    colorOptions: configuration.colorOptions,
     excludedCollections: configuration.excludedCollections,
     excludedTitleTerms: configuration.excludedTitleTerms,
-    sizeOption: configuration.sizeOption,
+    sizeOptions: configuration.sizeOptions,
+  });
+}
+
+async function ensureOptionMappings(
+  configuration: StoredConfiguration,
+): Promise<StoredConfiguration> {
+  if (configuration.optionMappingsInitialized) {
+    return configuration;
+  }
+
+  const colorOptions = resolveStoredOptionNames(
+    configuration.colorOptions,
+    configuration.colorOption,
+    configuration.optionMappingsInitialized,
+    DEFAULT_COLOR_OPTIONS,
+  );
+  const sizeOptions = resolveStoredOptionNames(
+    configuration.sizeOptions,
+    configuration.sizeOption,
+    configuration.optionMappingsInitialized,
+    DEFAULT_SIZE_OPTIONS,
+  );
+
+  return prisma.configuration.update({
+    where: { id: configuration.id },
+    data: {
+      colorOption: null,
+      colorOptions,
+      optionMappingsInitialized: true,
+      sizeOption: null,
+      sizeOptions,
+    },
   });
 }
 
@@ -114,25 +142,6 @@ async function ensureDiagnosticsRevision(
     where: { id: configuration.id },
     data: { diagnosticsRevision: revision },
   });
-}
-
-function collectOptionNames(data: ConfigurationBootstrapQuery) {
-  const names = new Map<string, string>();
-
-  for (const product of data.products.nodes) {
-    for (const option of product.options) {
-      const name = option.name.normalize("NFKC").trim().replace(/\s+/g, " ");
-      const key = name.toLocaleLowerCase();
-
-      if (name && !names.has(key)) {
-        names.set(key, name);
-      }
-    }
-  }
-
-  return [...names.values()].sort((left, right) =>
-    left.localeCompare(right, undefined, { sensitivity: "base" }),
-  );
 }
 
 export async function getConfigurationPageData(
@@ -156,7 +165,7 @@ export async function getConfigurationPageData(
     }
   }
 
-  const storedConfiguration =
+  const initialConfiguration =
     existingConfiguration ??
     (await prisma.configuration.upsert({
       where: { storeId: store.id },
@@ -166,17 +175,24 @@ export async function getConfigurationPageData(
           bootstrap?.shop.contactEmail ?? bootstrap?.shop.email ?? "",
         countryCode:
           bootstrap?.shop.billingAddress.countryCodeV2?.toUpperCase() ?? "",
-        diagnosticsRevision: createDiagnosticsConfigurationRevision({}),
+        colorOptions: [...DEFAULT_COLOR_OPTIONS],
+        diagnosticsRevision: createDiagnosticsConfigurationRevision({
+          colorOptions: DEFAULT_COLOR_OPTIONS,
+          sizeOptions: DEFAULT_SIZE_OPTIONS,
+        }),
         excludedCollections: [] as Prisma.InputJsonValue,
         excludedTitleTerms: [],
+        optionMappingsInitialized: true,
+        sizeOptions: [...DEFAULT_SIZE_OPTIONS],
         storeId: store.id,
       },
     }));
-  const configuration = await ensureDiagnosticsRevision(storedConfiguration);
+  const migratedConfiguration =
+    await ensureOptionMappings(initialConfiguration);
+  const configuration = await ensureDiagnosticsRevision(migratedConfiguration);
 
   return {
     configuration: mapConfiguration(configuration),
-    optionNames: bootstrap ? collectOptionNames(bootstrap) : [],
   };
 }
 
@@ -194,31 +210,22 @@ export async function saveConfigurationForShop(
       excludedCollections:
         input.excludedCollections as unknown as Prisma.InputJsonValue,
       diagnosticsRevision: nextDiagnosticsRevision,
+      optionMappingsInitialized: true,
       storeId: store.id,
     },
     update: {
       ...input,
+      colorOption: null,
       excludedCollections:
         input.excludedCollections as unknown as Prisma.InputJsonValue,
       diagnosticsRevision: nextDiagnosticsRevision,
+      optionMappingsInitialized: true,
+      sizeOption: null,
     },
   });
-  const latestDiagnosticsSnapshot = await findReadyDiagnosticsSnapshot(
-    session.shop,
-  ).catch((error) => {
-    console.error(
-      "Unable to compare the saved configuration with Diagnostics",
-      error,
-    );
-    return null;
-  });
-  const diagnosticsRequiresRefresh =
-    !latestDiagnosticsSnapshot ||
-    latestDiagnosticsSnapshot.configurationRevision !== nextDiagnosticsRevision;
 
   return {
     configuration: mapConfiguration(configuration),
-    diagnosticsRequiresRefresh,
   };
 }
 
@@ -227,46 +234,32 @@ export async function getDiagnosticsConfigurationRules(
 ): Promise<DiagnosticsConfigurationRules> {
   const store = await prisma.store.findUnique({
     where: { shopDomain: normalizeShopDomain(shop) },
-    select: {
-      configuration: {
-        select: {
-          excludedCollections: true,
-          excludedTitleTerms: true,
-          colorOption: true,
-          diagnosticsRevision: true,
-          id: true,
-          sizeOption: true,
-        },
-      },
-    },
+    include: { configuration: true },
   });
-  let configuration = store?.configuration;
+  let configuration = store?.configuration
+    ? await ensureOptionMappings(store.configuration)
+    : null;
 
   if (configuration) {
     const revision = createDiagnosticsConfigurationRevision({
-      colorOption: configuration.colorOption,
+      colorOptions: configuration.colorOptions,
       excludedCollections: configuration.excludedCollections,
       excludedTitleTerms: configuration.excludedTitleTerms,
-      sizeOption: configuration.sizeOption,
+      sizeOptions: configuration.sizeOptions,
     });
 
     if (configuration.diagnosticsRevision !== revision) {
       configuration = await prisma.configuration.update({
         where: { id: configuration.id },
         data: { diagnosticsRevision: revision },
-        select: {
-          colorOption: true,
-          diagnosticsRevision: true,
-          excludedCollections: true,
-          excludedTitleTerms: true,
-          id: true,
-          sizeOption: true,
-        },
       });
     }
   }
 
   return {
+    colorOptions: normalizeOptionNames(
+      configuration?.colorOptions ?? DEFAULT_COLOR_OPTIONS,
+    ),
     excludedCollections: normalizeSelectedCollections(
       configuration?.excludedCollections,
     ),
@@ -274,5 +267,8 @@ export async function getDiagnosticsConfigurationRules(
     revision:
       configuration?.diagnosticsRevision ??
       createDiagnosticsConfigurationRevision({}),
+    sizeOptions: normalizeOptionNames(
+      configuration?.sizeOptions ?? DEFAULT_SIZE_OPTIONS,
+    ),
   };
 }

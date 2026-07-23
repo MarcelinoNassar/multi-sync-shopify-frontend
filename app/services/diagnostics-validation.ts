@@ -1,5 +1,11 @@
+import {
+  DEFAULT_COLOR_OPTIONS,
+  DEFAULT_SIZE_OPTIONS,
+  normalizeOptionNames,
+} from "./configuration-validation.ts";
+
 export const DIAGNOSTICS_CLASSIFICATION_VERSION =
-  "diagnostics-v6-configuration-exclusions";
+  "diagnostics-v8-option-and-metafield-attributes";
 
 export type DiagnosticStatus = "submitted" | "warning" | "error";
 
@@ -32,11 +38,13 @@ export interface RawDiagnosticProduct {
 }
 
 export interface DiagnosticExclusionRules {
+  colorOptions?: string[];
   excludedCollections: Array<{
     id: string;
     title: string;
   }>;
   excludedTitleTerms: string[];
+  sizeOptions?: string[];
 }
 
 export interface DiagnosticProduct {
@@ -311,14 +319,38 @@ function equalSets(left: Set<string>, right: Set<string>) {
 function collectAttributeValues(
   product: RawDiagnosticProduct,
   source: "options" | "metafields",
+  rules?: DiagnosticExclusionRules,
 ) {
   const values = new Map<DiagnosticAttribute, string[]>();
 
   if (source === "options") {
-    for (const option of product.options) {
-      const attribute = getDiagnosticAttribute(option.name);
+    const colorOptionNames = new Set(
+      normalizeOptionNames(rules?.colorOptions ?? DEFAULT_COLOR_OPTIONS).map(
+        normalizeDiagnosticMatchText,
+      ),
+    );
+    const sizeOptionNames = new Set(
+      normalizeOptionNames(rules?.sizeOptions ?? DEFAULT_SIZE_OPTIONS).map(
+        normalizeDiagnosticMatchText,
+      ),
+    );
 
-      if (attribute) {
+    for (const option of product.options) {
+      const optionName = normalizeDiagnosticMatchText(option.name);
+      const inferredAttribute = getDiagnosticAttribute(option.name);
+      const attributes = new Set<DiagnosticAttribute>();
+
+      if (inferredAttribute === "gender" || inferredAttribute === "age") {
+        attributes.add(inferredAttribute);
+      }
+      if (colorOptionNames.has(optionName)) {
+        attributes.add("color");
+      }
+      if (sizeOptionNames.has(optionName)) {
+        attributes.add("size");
+      }
+
+      for (const attribute of attributes) {
         values.set(attribute, [
           ...(values.get(attribute) ?? []),
           ...option.values,
@@ -347,8 +379,9 @@ function collectAttributeValues(
 /**
  * Product-level validation intentionally has no Shopify dependencies. New GMC
  * warning rules and future exclusion errors can be added here without changing
- * pagination, caching, or the Diagnostics UI. An attribute is present when
- * either a product option OR a valid product metafield supplies a value.
+ * pagination, caching, or the Diagnostics UI. Color and Size variant-option
+ * aliases come from the store configuration, while a valid product metafield
+ * can independently supply the same standard attribute.
  */
 export function validateDiagnosticProduct(
   product: RawDiagnosticProduct,
@@ -371,7 +404,11 @@ export function validateDiagnosticProduct(
   }
 
   const warnings: DiagnosticWarning[] = [];
-  const optionValues = collectAttributeValues(product, "options");
+  const optionValues = collectAttributeValues(
+    product,
+    "options",
+    exclusionRules,
+  );
   const metafieldValues = collectAttributeValues(product, "metafields");
 
   for (const attribute of comparableAttributes) {

@@ -158,7 +158,6 @@ function mapCounts(snapshot: {
 export async function findReadyDiagnosticsSnapshot(
   shop: string,
   scanVersion?: string | null,
-  configurationRevision?: string | null,
 ) {
   if (scanVersion && !scanVersion.startsWith(SNAPSHOT_VERSION_PREFIX)) {
     return null;
@@ -169,7 +168,6 @@ export async function findReadyDiagnosticsSnapshot(
       shop: normalizeShop(shop),
       status: READY_STATUS,
       scanVersion: scanVersion ?? { startsWith: SNAPSHOT_VERSION_PREFIX },
-      ...(configurationRevision ? { configurationRevision } : {}),
     },
     orderBy: {
       completedAt: "desc",

@@ -7,18 +7,18 @@ import {
   ConfigurationRequestError,
   saveConfigurationRequest,
   type ConfigurationQueryScope,
+  variantOptionNamesQueryOptions,
 } from "../services/configuration-query";
 import {
   ConfigurationValidationError,
   normalizeConfigurationText,
   normalizeExcludedTitleTerms,
+  normalizeOptionNames,
   type ConfigurationFieldErrors,
   type ConfigurationInput,
   type SelectedCollection,
   validateConfigurationInput,
 } from "../services/configuration-validation";
-import { diagnosticsKeys } from "../services/diagnostics-query";
-import type { DiagnosticsCounts } from "../services/diagnostics.server";
 import styles from "../styles/configurations.module.css";
 
 interface ConfigurationsPanelProps {
@@ -54,43 +54,101 @@ function FeatureHeading({
   );
 }
 
-function SearchableOptionField({
+function OptionNameSelector({
+  attribute,
   error,
-  label,
   onChange,
-  options,
   placeholder,
-  popoverId,
-  searchPlaceholder,
+  scope,
   value,
 }: {
+  attribute: "Color" | "Size";
   error?: string;
-  label: string;
-  onChange: (value: string | null) => void;
-  options: string[];
+  onChange: (value: string[]) => void;
   placeholder: string;
-  popoverId: string;
-  searchPlaceholder: string;
-  value: string | null;
+  scope: ConfigurationQueryScope;
+  value: string[];
 }) {
+  const modalId = `configuration-${attribute.toLocaleLowerCase()}-option-names`;
+  const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const searchRef = useRef<HTMLElementTagNameMap["s-search-field"]>(null);
+  const [draftValue, setDraftValue] = useState<string[]>(value);
+  const optionNamesQuery = useQuery({
+    ...variantOptionNamesQueryOptions(scope),
+    enabled: isOpen,
+  });
   const normalizedSearch =
     normalizeConfigurationText(search).toLocaleLowerCase();
-  const visibleOptions = options.filter((option) =>
-    option.toLocaleLowerCase().includes(normalizedSearch),
+  const availableOptions = useMemo(
+    () =>
+      normalizeOptionNames([...(optionNamesQuery.data ?? []), ...draftValue]),
+    [draftValue, optionNamesQuery.data],
   );
+  const visibleOptions = availableOptions.filter((option) =>
+    normalizeConfigurationText(option)
+      .toLocaleLowerCase()
+      .includes(normalizedSearch),
+  );
+  const selectedOptions = useMemo(
+    () =>
+      new Set(
+        draftValue.map((option) =>
+          normalizeConfigurationText(option).toLocaleLowerCase(),
+        ),
+      ),
+    [draftValue],
+  );
+
+  const toggleOption = (option: string, checked: boolean) => {
+    const comparable = normalizeConfigurationText(option).toLocaleLowerCase();
+
+    setDraftValue((current) =>
+      checked
+        ? normalizeOptionNames([...current, option])
+        : current.filter(
+            (value) =>
+              normalizeConfigurationText(value).toLocaleLowerCase() !==
+              comparable,
+          ),
+    );
+  };
 
   return (
     <div className={styles.optionField}>
+      <div className={styles.tags}>
+        {value.map((option) => (
+          <span className={styles.tag} key={option.toLocaleLowerCase()}>
+            <span>{option}</span>
+            <button
+              aria-label={`Remove ${option} from ${attribute}`}
+              onClick={() =>
+                onChange(
+                  value.filter(
+                    (current) =>
+                      normalizeConfigurationText(
+                        current,
+                      ).toLocaleLowerCase() !==
+                      normalizeConfigurationText(option).toLocaleLowerCase(),
+                  ),
+                )
+              }
+              type="button"
+            >
+              ×
+            </button>
+          </span>
+        ))}
+      </div>
+
       <s-clickable
-        accessibilityLabel={label}
+        accessibilityLabel={`Select ${attribute} option names`}
         background="base"
         border="small-100"
         borderColor="base"
         borderRadius="base"
         borderStyle="solid"
-        commandFor={popoverId}
+        command="--show"
+        commandFor={modalId}
         inlineSize="100%"
         padding="small-200 base"
       >
@@ -100,8 +158,10 @@ function SearchableOptionField({
           gap="small"
           justifyContent="space-between"
         >
-          <s-text color={value ? "base" : "subdued"}>
-            {value || placeholder}
+          <s-text color={value.length > 0 ? "base" : "subdued"}>
+            {value.length > 0
+              ? `${value.length} option name${value.length === 1 ? "" : "s"} selected`
+              : placeholder}
           </s-text>
           <s-icon color="subdued" type="select" />
         </s-stack>
@@ -113,91 +173,100 @@ function SearchableOptionField({
         </span>
       ) : null}
 
-      <s-popover
-        blockSize="340px"
-        id={popoverId}
-        inlineSize="360px"
-        onHide={() => setSearch("")}
+      <s-modal
+        heading={`Select ${attribute} option names`}
+        id={modalId}
+        onHide={() => setIsOpen(false)}
         onShow={() => {
-          window.requestAnimationFrame(() => searchRef.current?.focus());
+          setDraftValue(value);
+          setSearch("");
+          setIsOpen(true);
         }}
+        padding="none"
+        size="base"
       >
-        <s-box padding="small-200">
-          <div className={styles.configurationPopoverContent}>
-            <s-search-field
-              label={`Search ${label.toLocaleLowerCase()}`}
-              labelAccessibilityVisibility="exclusive"
-              onInput={(event) => setSearch(event.currentTarget.value)}
-              placeholder={searchPlaceholder}
-              ref={searchRef}
-              value={search}
-            />
-            <div className={styles.popoverResults}>
-              <s-stack direction="block" gap="small-100">
-                <s-button
-                  command="--hide"
-                  commandFor={popoverId}
-                  icon={!value ? "check" : undefined}
-                  onClick={() => onChange(null)}
-                  variant="tertiary"
-                >
-                  {placeholder}
-                </s-button>
-                {visibleOptions.map((option) => (
-                  <s-button
-                    command="--hide"
-                    commandFor={popoverId}
-                    icon={value === option ? "check" : undefined}
-                    key={option.toLocaleLowerCase()}
-                    onClick={() => onChange(option)}
-                    variant="tertiary"
-                  >
-                    {option}
-                  </s-button>
-                ))}
-              </s-stack>
-              {visibleOptions.length === 0 ? (
+        <s-box padding="base">
+          <div className={styles.optionModalContent}>
+            <s-paragraph color="subdued">
+              Select the Shopify variant option names that should be treated as{" "}
+              {attribute}.
+            </s-paragraph>
+            <div className={styles.optionModalToolbar}>
+              <s-search-field
+                label={`Search ${attribute} option names`}
+                labelAccessibilityVisibility="exclusive"
+                onInput={(event) => setSearch(event.currentTarget.value)}
+                placeholder="Search variant option names"
+                value={search}
+              />
+              <s-badge tone="info">{draftValue.length} selected</s-badge>
+            </div>
+
+            <div className={styles.optionList}>
+              {optionNamesQuery.isPending ? (
                 <div className={styles.collectionState}>
-                  <s-text color="subdued">No options found.</s-text>
+                  <s-spinner
+                    accessibilityLabel="Loading variant option names"
+                    size="base"
+                  />
                 </div>
-              ) : null}
+              ) : optionNamesQuery.isError ? (
+                <div className={styles.collectionState}>
+                  <s-text color="subdued">
+                    Variant option names could not be loaded.
+                  </s-text>
+                  <s-button
+                    onClick={() => optionNamesQuery.refetch()}
+                    variant="secondary"
+                  >
+                    Retry
+                  </s-button>
+                </div>
+              ) : visibleOptions.length === 0 ? (
+                <div className={styles.collectionState}>
+                  <s-text color="subdued">No option names found.</s-text>
+                </div>
+              ) : (
+                visibleOptions.map((option) => {
+                  const comparable =
+                    normalizeConfigurationText(option).toLocaleLowerCase();
+
+                  return (
+                    <div className={styles.optionListItem} key={comparable}>
+                      <s-checkbox
+                        checked={selectedOptions.has(comparable)}
+                        label={option}
+                        onChange={(event) =>
+                          toggleOption(option, event.currentTarget.checked)
+                        }
+                      />
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
         </s-box>
-      </s-popover>
+        <s-button
+          command="--hide"
+          commandFor={modalId}
+          onClick={() => onChange(normalizeOptionNames(draftValue))}
+          slot="primary-action"
+          variant="primary"
+        >
+          Confirm
+        </s-button>
+        <s-button
+          command="--hide"
+          commandFor={modalId}
+          slot="secondary-actions"
+          variant="secondary"
+        >
+          Cancel
+        </s-button>
+      </s-modal>
     </div>
   );
-}
-
-function uniqueOptions(
-  optionNames: string[],
-  matches: (option: string) => boolean,
-  fallbacks: string[],
-  selected: string | null,
-) {
-  const values: string[] = [];
-  const seen = new Set<string>();
-
-  for (const value of [...optionNames.filter(matches), ...fallbacks]) {
-    const normalized = normalizeConfigurationText(value);
-    const key = normalized.toLocaleLowerCase();
-
-    if (normalized && !seen.has(key)) {
-      seen.add(key);
-      values.push(normalized);
-    }
-  }
-
-  if (selected) {
-    const normalized = normalizeConfigurationText(selected);
-    const key = normalized.toLocaleLowerCase();
-
-    if (normalized && !seen.has(key)) {
-      values.push(normalized);
-    }
-  }
-
-  return values;
 }
 
 export function ConfigurationsPanel({
@@ -248,8 +317,8 @@ export function ConfigurationsPanel({
       setForm({
         alertsEmail: configuration.alertsEmail,
         countryCode: configuration.countryCode,
-        colorOption: configuration.colorOption,
-        sizeOption: configuration.sizeOption,
+        colorOptions: configuration.colorOptions,
+        sizeOptions: configuration.sizeOptions,
         excludedCollections: configuration.excludedCollections,
         excludedTitleTerms: configuration.excludedTitleTerms,
       });
@@ -307,27 +376,6 @@ export function ConfigurationsPanel({
       !form?.excludedCollections.some(
         (selected) => selected.id === collection.id,
       ),
-  );
-  const colorOptions = useMemo(
-    () =>
-      uniqueOptions(
-        configurationQuery.data?.optionNames ?? [],
-        (option) =>
-          /(?:color|colour|shade)/i.test(normalizeConfigurationText(option)),
-        ["Color", "Colour", "Shade"],
-        form?.colorOption ?? null,
-      ),
-    [configurationQuery.data?.optionNames, form?.colorOption],
-  );
-  const sizeOptions = useMemo(
-    () =>
-      uniqueOptions(
-        configurationQuery.data?.optionNames ?? [],
-        (option) => /(?:size|waist)/i.test(normalizeConfigurationText(option)),
-        ["Size", "Shoe size", "Waist"],
-        form?.sizeOption ?? null,
-      ),
-    [configurationQuery.data?.optionNames, form?.sizeOption],
   );
 
   const updateForm = <TKey extends keyof ConfigurationInput>(
@@ -406,8 +454,8 @@ export function ConfigurationsPanel({
       setForm({
         alertsEmail: configuration.alertsEmail,
         countryCode: configuration.countryCode,
-        colorOption: configuration.colorOption,
-        sizeOption: configuration.sizeOption,
+        colorOptions: configuration.colorOptions,
+        sizeOptions: configuration.sizeOptions,
         excludedCollections: configuration.excludedCollections,
         excludedTitleTerms: configuration.excludedTitleTerms,
       });
@@ -417,28 +465,10 @@ export function ConfigurationsPanel({
           current ? { ...current, configuration } : current,
       );
 
-      queryClient.setQueriesData<DiagnosticsCounts>(
-        {
-          predicate: (query) => query.queryKey[5] === "summary",
-          queryKey: diagnosticsKeys.shop(scope.shop),
-        },
-        (current) =>
-          current
-            ? { ...current, isStale: result.diagnosticsRequiresRefresh }
-            : current,
-      );
-      if (result.diagnosticsRequiresRefresh) {
-        setFeedback({
-          message:
-            "Configuration saved. Refresh Diagnostics when you're ready to apply these changes.",
-          tone: "info",
-        });
-      } else {
-        setFeedback({
-          message: "Configuration saved successfully.",
-          tone: "success",
-        });
-      }
+      setFeedback({
+        message: "Configuration saved successfully.",
+        tone: "success",
+      });
     } catch (error) {
       if (error instanceof ConfigurationRequestError) {
         setFieldErrors(error.fields ?? {});
@@ -542,15 +572,13 @@ export function ConfigurationsPanel({
               {isLoading ? (
                 <ConfigurationSkeleton />
               ) : (
-                <SearchableOptionField
-                  error={fieldErrors.colorOption}
-                  label="Color option"
-                  onChange={(value) => updateForm("colorOption", value)}
-                  options={colorOptions}
+                <OptionNameSelector
+                  attribute="Color"
+                  error={fieldErrors.colorOptions}
+                  onChange={(value) => updateForm("colorOptions", value)}
                   placeholder="Choose color"
-                  popoverId="configuration-color-option-popover"
-                  searchPlaceholder="Search color options"
-                  value={form?.colorOption ?? null}
+                  scope={queryScope}
+                  value={form?.colorOptions ?? []}
                 />
               )}
             </div>
@@ -563,15 +591,13 @@ export function ConfigurationsPanel({
               {isLoading ? (
                 <ConfigurationSkeleton />
               ) : (
-                <SearchableOptionField
-                  error={fieldErrors.sizeOption}
-                  label="Size option"
-                  onChange={(value) => updateForm("sizeOption", value)}
-                  options={sizeOptions}
+                <OptionNameSelector
+                  attribute="Size"
+                  error={fieldErrors.sizeOptions}
+                  onChange={(value) => updateForm("sizeOptions", value)}
                   placeholder="Choose size"
-                  popoverId="configuration-size-option-popover"
-                  searchPlaceholder="Search size options"
-                  value={form?.sizeOption ?? null}
+                  scope={queryScope}
+                  value={form?.sizeOptions ?? []}
                 />
               )}
             </div>

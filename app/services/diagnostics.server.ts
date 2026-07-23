@@ -81,7 +81,6 @@ export interface DiagnosticsCounts {
   configurationRevision: string;
   generatedAt: string;
   hasSnapshot: boolean;
-  isStale: boolean;
   scanVersion: string;
 }
 
@@ -1519,29 +1518,24 @@ function invalidateCountsCacheForShop(shop: string, exceptKey?: string) {
   }
 }
 
-function addSnapshotFreshness(
+function addSnapshotMetadata(
   snapshot: DiagnosticsSnapshotCounts,
-  currentConfigurationRevision: string,
 ): DiagnosticsCounts {
   return {
     ...snapshot,
     hasSnapshot: true,
-    isStale: snapshot.configurationRevision !== currentConfigurationRevision,
   };
 }
 
-function emptyDiagnosticsCounts(
-  configurationRevision: string,
-): DiagnosticsCounts {
+function emptyDiagnosticsCounts(): DiagnosticsCounts {
   return {
     allProducts: 0,
     submitted: 0,
     warnings: 0,
     excluded: 0,
-    configurationRevision,
+    configurationRevision: "",
     generatedAt: "",
     hasSnapshot: false,
-    isStale: true,
     scanVersion: "",
   };
 }
@@ -1568,21 +1562,21 @@ export async function getDiagnosticsCounts(
   const force = options.force ?? false;
   const rawGeneration = getRawGeneration(shop, force, options.refreshToken);
   const refreshRequestId = options.refreshToken ?? rawGeneration;
-  const rules = await getDiagnosticsConfigurationRules(shop);
 
   if (!force) {
     const readySnapshot = await findReadyDiagnosticsSnapshot(shop);
 
     if (readySnapshot) {
-      const snapshotKey = `${normalizedShop}|snapshot-${readySnapshot.scanVersion}|config-${rules.revision}`;
+      const snapshotKey = `${normalizedShop}|snapshot-${readySnapshot.scanVersion}`;
       return getCachedValue(countsCache, snapshotKey, COUNTS_CACHE_TTL_MS, () =>
-        Promise.resolve(addSnapshotFreshness(readySnapshot, rules.revision)),
+        Promise.resolve(addSnapshotMetadata(readySnapshot)),
       );
     }
 
-    return emptyDiagnosticsCounts(rules.revision);
+    return emptyDiagnosticsCounts();
   }
 
+  const rules = await getDiagnosticsConfigurationRules(shop);
   const key = `${normalizedShop}|${DIAGNOSTICS_CLASSIFICATION_VERSION}|config-${rules.revision}|refresh-${refreshRequestId}`;
 
   invalidateCountsCacheForShop(shop, key);
@@ -1603,7 +1597,7 @@ export async function getDiagnosticsCounts(
     );
     invalidateCountsCacheForShop(shop, key);
     invalidatePageCacheForShop(shop);
-    return addSnapshotFreshness(counts, rules.revision);
+    return addSnapshotMetadata(counts);
   });
 }
 
@@ -1633,7 +1627,7 @@ export async function getDiagnosticsPage(
     !options.snapshotVersion.startsWith("shopify-") &&
     !readySnapshot
   ) {
-    throw new DiagnosticsDataError();
+    return emptyDiagnosticsPage();
   }
 
   if (!readySnapshot) {

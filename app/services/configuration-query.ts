@@ -17,7 +17,6 @@ interface ConfigurationResponse {
   ok: true;
   intent: "configuration";
   configuration: PublicConfiguration;
-  optionNames: string[];
 }
 
 interface CollectionsResponse {
@@ -26,10 +25,15 @@ interface CollectionsResponse {
   page: CollectionSearchPage;
 }
 
+interface OptionNamesResponse {
+  ok: true;
+  intent: "option-names";
+  optionNames: string[];
+}
+
 interface SaveConfigurationResponse {
   ok: true;
   configuration: PublicConfiguration;
-  diagnosticsRequiresRefresh: boolean;
 }
 
 interface ErrorResponse {
@@ -62,6 +66,10 @@ export const configurationKeys = {
     { shop, sessionId }: ConfigurationQueryScope,
     endpoint = defaultEndpoint,
   ) => ["configuration", shop, sessionId, endpoint] as const,
+  optionNames: (
+    { shop, sessionId }: ConfigurationQueryScope,
+    endpoint = defaultEndpoint,
+  ) => ["configuration-option-names", shop, sessionId, endpoint] as const,
   collections: (
     { shop, sessionId }: ConfigurationQueryScope,
     search: string,
@@ -146,6 +154,28 @@ export function collectionsQueryOptions(
       });
       const payload = await readJson<CollectionsResponse>(response);
       return payload.page;
+    },
+  });
+}
+
+export function variantOptionNamesQueryOptions(
+  scope: ConfigurationQueryScope,
+  endpoint = defaultEndpoint,
+) {
+  const params = new URLSearchParams({ intent: "option-names" });
+
+  return queryOptions({
+    ...sessionCacheOptions,
+    queryKey: configurationKeys.optionNames(scope, endpoint),
+    queryFn: async ({ signal }): Promise<string[]> => {
+      const response = await fetch(`${endpoint}?${params}`, {
+        cache: "no-store",
+        credentials: "same-origin",
+        headers: { Accept: "application/json" },
+        signal,
+      });
+      const payload = await readJson<OptionNamesResponse>(response);
+      return payload.optionNames;
     },
   });
 }

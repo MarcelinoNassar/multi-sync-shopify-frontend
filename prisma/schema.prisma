@@ -53,18 +53,22 @@ model Store {
 }
 
 model Configuration {
-  id                  String   @id @default(auto()) @map("_id") @db.ObjectId
-  storeId             String   @unique @db.ObjectId
-  store               Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  alertsEmail         String
-  countryCode         String
-  colorOption         String?
-  sizeOption          String?
-  excludedCollections Json
-  excludedTitleTerms  String[]
-  diagnosticsRevision String   @default("")
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id                        String   @id @default(auto()) @map("_id") @db.ObjectId
+  storeId                   String   @unique @db.ObjectId
+  store                     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  alertsEmail               String
+  countryCode               String
+  // Kept temporarily so existing single-value records can be migrated safely.
+  colorOption               String?
+  sizeOption                String?
+  colorOptions              String[] @default([])
+  sizeOptions               String[] @default([])
+  optionMappingsInitialized Boolean  @default(false)
+  excludedCollections       Json
+  excludedTitleTerms        String[]
+  diagnosticsRevision       String   @default("")
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
 
   @@index([updatedAt])
 }

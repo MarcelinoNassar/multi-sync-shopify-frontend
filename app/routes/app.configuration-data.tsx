@@ -6,14 +6,16 @@ import {
   saveConfigurationForShop,
 } from "../services/configuration.server";
 import { ConfigurationValidationError } from "../services/configuration-validation";
+import { getShopVariantOptionNames } from "../services/variant-option-discovery.server";
 import { authenticate } from "../shopify.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
   const url = new URL(request.url);
+  const intent = url.searchParams.get("intent");
 
   try {
-    if (url.searchParams.get("intent") === "collections") {
+    if (intent === "collections") {
       const page = await searchShopCollections(
         admin,
         url.searchParams.get("search"),
@@ -21,6 +23,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       );
 
       return Response.json({ ok: true, intent: "collections", page });
+    }
+
+    if (intent === "option-names") {
+      const optionNames = await getShopVariantOptionNames(admin, session.shop);
+      return Response.json({ ok: true, intent, optionNames });
     }
 
     const data = await getConfigurationPageData(admin, session);
@@ -31,9 +38,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       {
         ok: false,
         error:
-          url.searchParams.get("intent") === "collections"
+          intent === "collections"
             ? "Collections couldn't be loaded. Try again."
-            : "Configuration couldn't be loaded. Try again.",
+            : intent === "option-names"
+              ? "Product option names couldn't be loaded. Try again."
+              : "Configuration couldn't be loaded. Try again.",
       },
       { status: 500 },
     );

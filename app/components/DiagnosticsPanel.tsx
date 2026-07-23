@@ -721,32 +721,6 @@ export function DiagnosticsPanel({
         </div>
       ) : null}
 
-      {storeWideCounts?.isStale ? (
-        <div className={styles.errorBanner}>
-          <s-banner
-            heading={
-              storeWideCounts.hasSnapshot
-                ? "Diagnostics results are outdated"
-                : "Diagnostics has not been analyzed yet"
-            }
-            tone={storeWideCounts.hasSnapshot ? "warning" : "info"}
-          >
-            {storeWideCounts.hasSnapshot
-              ? "Configuration changed. Refresh Diagnostics when you're ready to apply the latest settings."
-              : "Select Refresh to analyze eligible products for this store."}
-            <s-button
-              disabled={isRefreshing}
-              loading={isRefreshing ? true : undefined}
-              onClick={refresh}
-              slot="secondary-actions"
-              variant="secondary"
-            >
-              Refresh
-            </s-button>
-          </s-banner>
-        </div>
-      ) : null}
-
       <div className={styles.card}>
         <div
           aria-label="Diagnostic product status"
