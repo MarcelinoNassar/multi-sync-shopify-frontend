@@ -191,6 +191,30 @@ test("valid product metafields independently supply Color and Size", () => {
   );
 });
 
+test("zero, blank, null, and invalid prices are treated as missing", () => {
+  for (const price of [null, "", " ", "0", "0.0", "0.00", "00.000", "abc"]) {
+    const diagnostic = validateDiagnosticProduct(product({ price }));
+
+    assert.equal(
+      diagnostic.warnings.some((warning) => warning.code === "missing-price"),
+      true,
+      `expected ${String(price)} to produce a missing price warning`,
+    );
+  }
+});
+
+test("positive decimal prices are not treated as missing", () => {
+  for (const price of ["0.01", "1", "1.00", " 20.00 "]) {
+    const diagnostic = validateDiagnosticProduct(product({ price }));
+
+    assert.equal(
+      diagnostic.warnings.some((warning) => warning.code === "missing-price"),
+      false,
+      `expected ${price} to be accepted as a valid price`,
+    );
+  }
+});
+
 test("selected collection membership excludes the product", () => {
   const diagnostic = validateDiagnosticProduct(
     product({ collectionIds: ["gid://shopify/Collection/123"] }),

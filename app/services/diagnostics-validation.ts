@@ -5,7 +5,7 @@ import {
 } from "./configuration-validation.ts";
 
 export const DIAGNOSTICS_CLASSIFICATION_VERSION =
-  "diagnostics-v8-option-and-metafield-attributes";
+  "diagnostics-v9-positive-price-validation";
 
 export type DiagnosticStatus = "submitted" | "warning" | "error";
 
@@ -316,6 +316,18 @@ function equalSets(left: Set<string>, right: Set<string>) {
   );
 }
 
+function hasPositivePrice(value: string | null) {
+  const normalizedPrice = value?.trim();
+
+  if (!normalizedPrice) {
+    return false;
+  }
+
+  const amount = Number(normalizedPrice);
+
+  return Number.isFinite(amount) && amount > 0;
+}
+
 function collectAttributeValues(
   product: RawDiagnosticProduct,
   source: "options" | "metafields",
@@ -445,7 +457,7 @@ export function validateDiagnosticProduct(
     });
   }
 
-  if (!product.price?.trim()) {
+  if (!hasPositivePrice(product.price)) {
     warnings.push({ code: "missing-price", message: "Missing value: Price." });
   }
 

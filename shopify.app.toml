@@ -1,7 +1,7 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "f9deb604ed05729d64a9c9e59fa5044a"
-name = "Adknot-ai"
+name = "Multi-sync"
 application_url = "https://example.com"
 embedded = true
 
